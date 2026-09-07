@@ -1,0 +1,3 @@
+# Optional, separate environment. Not required by the core Windows executable.
+docling==2.123.1
+easyocr==1.7.2
