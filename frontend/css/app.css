@@ -359,6 +359,7 @@ html[data-theme="light"] .btn--primary { color: #fff; }
 .switch input:checked + .switch__track { background: var(--accent-quiet); border-color: var(--accent-line); }
 .switch input:checked + .switch__track::after { transform: translateX(16px); background: var(--accent); }
 .switch input:focus-visible + .switch__track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled + .switch__track { opacity: .55; }
 .switch__text { display: grid; }
 .switch__text small { color: var(--text-3); font-size: var(--step-1); }
 
@@ -495,8 +496,41 @@ button.step:hover { border-color: var(--accent-line); color: var(--text); }
 @keyframes blink { 50% { opacity: 0; } }
 
 .composer { border-top: 1px solid var(--line); background: var(--surface); }
-.composer__inner { max-width: 780px; margin: 0 auto; padding: 12px 26px 16px; }
+.composer__inner {
+  display: flex; align-items: center; gap: 12px;
+  max-width: 960px; margin: 0 auto; padding: 12px 18px 16px;
+}
+.composer__side {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  gap: 10px; flex: none; min-width: 0;
+}
+.composer__model {
+  appearance: none; -webkit-appearance: none;
+  max-width: 168px; min-width: 0;
+  padding: 4px 22px 4px 10px;
+  border: 1px solid var(--accent-line); border-radius: 20px;
+  background-color: var(--accent-quiet); color: var(--accent);
+  font-family: var(--font-mono); font-size: .6875rem; line-height: 1.3;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%),
+    linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.composer__model:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.composer__model:disabled { opacity: .45; cursor: not-allowed; }
+.composer__think {
+  display: flex; align-items: center; gap: 8px; padding: 0; cursor: pointer;
+  color: var(--text-2); user-select: none;
+}
+.composer__think-label {
+  font-family: var(--font-display); font-variation-settings: "wdth" 87.5, "wght" 600;
+  font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase;
+}
+.composer__think.is-disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
 .composer__box {
+  flex: 1; min-width: 0;
   border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2);
   transition: border-color var(--dur) var(--ease);
 }

@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..config import store
+from ..config import APP_ROOT, DATA_DIR, store
 from ..deps import current_db, current_ollama, current_profile
 from ..ollama_client import OllamaError
 from ..vault import VaultError, require_root, vault_stats
@@ -89,6 +89,8 @@ async def status() -> Dict[str, Any]:
         "embedding": {"name": profile.ollama.embed_model, "installed": embed_installed},
         "models": models,
         "vault": vault_state,
+        "paths": {"app_root": str(APP_ROOT), "data_dir": str(DATA_DIR)},
+        "ai": {"thinking": bool(profile.ai.thinking)},
         "privacy": profile.privacy.model_dump(),
         "ui": store.config.ui.model_dump(),
         "counts": {"chats": database.count("chats"), "messages": database.count("messages")},

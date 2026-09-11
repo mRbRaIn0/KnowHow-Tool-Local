@@ -356,10 +356,8 @@ async def send_message(chat_id: str, request: MessageRequest) -> StreamingRespon
 
     # Thinking nur setzen, wenn das Modell es kann. Ohne ausdrückliches False
     # denken Modelle wie qwen3.5 bei jeder Antwort — das kostet spürbar Zeit.
-    think = (
-        bool(profile.ai.thinking or (requirements.actionable and not question_mode))
-        if "thinking" in capabilities else None
-    )
+    # Der Schalter in der Eingabe (profile.ai.thinking) ist die einzige Quelle.
+    think = bool(profile.ai.thinking) if "thinking" in capabilities else None
     rundenlimit = _tool_rounds(len(vorhandene_anhaenge))
 
     async def event_stream():

@@ -8,12 +8,15 @@
 - Quellenanweisungen unterscheiden PDF-Seiten von Notizen und DOCX-Dateien.
 - Versionsanzeige auf 1.1.
 - Proprietäre Lizenz für mRbRaIn0 und separate Drittanbieter-Lizenzhinweise.
-- Release-ZIP mit expliziter Dateiliste und SHA-256-Prüfsummen.
+- Empfohlene Modelle Stand 11. September 2026: `qwen3.5:9b` als Standard
+  mit Thinking, Alternativen `qwen3.5:4b` und `qwen3-vl:8b`, Suche über
+  `nomic-embed-text`. Chats bleiben im Ordner `data` neben der EXE.
 
 ## Prüfung am 11. September 2026
 
-- 70 automatisierte Tests bestanden: lokale Workflows, Anhänge, Backups,
-  Profile/Chats, Wissensindex, Desktop-Start und Sicherheitsgrenzen.
+- 73 automatisierte Tests bestanden: lokale Workflows, Anhänge, Backups,
+  Profile/Chats, Wissensindex, Desktop-Start, Sicherheitsgrenzen und
+  Update-Erhalt von Verlauf und Konfiguration.
 - Python-Kompilierung und Syntaxprüfung aller 16 JavaScript-Dateien bestanden.
 - Gebaute One-File-EXE: Selbsttest für Imports, SQLite, FTS5, sqlite-vec,
   WebView2 und eingebettete Dateien bestanden.
@@ -47,7 +50,9 @@ Entpacken der EXE blockieren; die Abnahme erfolgte außerhalb dieser Sandbox.
 
 ## Unternehmenslaptop
 
-Das ZIP in einen beschreibbaren lokalen Ordner entpacken. Ollama und Modelle
+Das ZIP in denselben beschreibbaren Ordner entpacken, in dem die bisherige
+`KnowHow Tool.exe` liegt, und vorhandene Dateien ersetzen. Den Ordner `data`
+nicht löschen, sonst gehen Chats und Profile verloren. Ollama und Modelle
 müssen separat vorhanden sein; für die EXE ist keine Python-Installation nötig.
 Ein eigenes Unternehmensprofil und einen lokalen Wissensordner einrichten.
 Bild-/Scanwissen für spätere Fragen in Textnotizen übernehmen lassen.

@@ -14,7 +14,7 @@
       "id": "privat",
       "name": "Privat",
       "vault": {
-        "path": "D:\\AI-Wissen",
+        "path": "C:\\Vault",
         "attachments_dir": "90 Anhänge",
         "templates_dir": "00 Templates"
       },
@@ -27,7 +27,7 @@
         "temperature": 0.7,
         "num_ctx": 8192,
         "rag_top_k": 6,
-        "thinking": false,
+        "thinking": true,
         "system_prompt": "Du bist ein lokaler Obsidian-Wissensarchitekt und Datenversteher. Verdichte Informationen zu vollständigen, verknüpften und direkt nutzbaren Wissensnotizen. Antworte standardmäßig auf Deutsch."
       },
       "privacy": {
@@ -53,7 +53,7 @@
         "temperature": 0.4,
         "num_ctx": 8192,
         "rag_top_k": 6,
-        "thinking": false,
+        "thinking": true,
         "system_prompt": "Du bist ein lokaler Obsidian-Wissensarchitekt für Unternehmensdaten. Prüfe Zusammenhänge, erzeuge vollständige Dokumentation und verknüpfe relevantes Wissen. Antworte sachlich auf Deutsch."
       },
       "privacy": {

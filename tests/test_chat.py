@@ -97,6 +97,48 @@ class ChatPurposeMigrationTests(unittest.TestCase):
                 database.close()
 
 
+class ChatMessageSchemaUpgradeTests(unittest.TestCase):
+    def test_old_messages_keep_text_after_column_migration(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+            path = Path(folder) / "app.db"
+            connection = sqlite3.connect(path)
+            connection.executescript(
+                """
+                CREATE TABLE chats (
+                    id TEXT PRIMARY KEY, title TEXT NOT NULL, model TEXT NOT NULL,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                );
+                CREATE TABLE messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                INSERT INTO chats VALUES ('alt', 'Bestehender Chat', 'modell',
+                                          '2026-01-01', '2026-01-01');
+                INSERT INTO messages (chat_id, role, content, created_at)
+                VALUES ('alt', 'user', 'Bitte behalten', '2026-01-01'),
+                       ('alt', 'assistant', 'Antwort bleibt', '2026-01-01');
+                """
+            )
+            connection.commit()
+            connection.close()
+
+            database = Database(path)
+            try:
+                chat = database.get_chat("alt")
+                messages = database.list_messages("alt")
+                self.assertEqual(chat["title"], "Bestehender Chat")
+                self.assertEqual(chat["purpose"], "vault")
+                self.assertEqual([item["content"] for item in messages],
+                                 ["Bitte behalten", "Antwort bleibt"])
+                self.assertEqual(messages[1]["thinking"], "")
+                self.assertEqual(messages[1]["attachments"], [])
+            finally:
+                database.close()
+
+
 class ChatFolderTests(unittest.TestCase):
     def _database(self, folder: str) -> Database:
         return Database(Path(folder) / "app.db")

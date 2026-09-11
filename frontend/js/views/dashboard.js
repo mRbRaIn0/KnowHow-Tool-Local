@@ -63,8 +63,11 @@ function problems(view) {
   }
 
   if (!status.vault.ok) {
+    const dataHint = !(status.counts?.chats)
+      ? ` Verlauf und Einstellungen liegen in „${status.paths?.data_dir || 'data'}“ neben der EXE. Eine neue Version in denselben Ordner legen und diesen data-Ordner behalten.`
+      : '';
     items.push(notice('warn', 'Kein Vault ausgewählt',
-      status.vault.error || 'Wähle den Ordner deines Obsidian-Vaults aus.', [
+      (status.vault.error || 'Wähle den Ordner deines Obsidian-Vaults aus.') + dataHint, [
         { label: 'Ordner auswählen', variant: 'primary', onClick: () => chooseVault(view) },
         { label: 'Einstellungen öffnen', onClick: () => navigate('/settings') },
       ]));

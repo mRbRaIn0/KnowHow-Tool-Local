@@ -714,18 +714,96 @@ function composer() {
     chips,
     h('div', { class: 'composer__row' }, plus, input),
     h('div', { class: 'composer__bar' },
-      h('span', { class: 'chip chip--accent', text: state.status?.model?.name || 'kein Modell' }),
-      h('span', { class: 'composer__hint', text: askMode
-        ? 'Wissensbasis + KI · nur lesen'
-        : (state.status?.privacy?.offline_mode ? 'Vault schreiben · offline' : 'Vault schreiben') }),
       h('span', { class: 'spacer' }),
       stopButton, sendButton));
 
   const wrapper = h('div', { class: 'composer' },
-    h('div', { class: 'composer__inner' }, box, dateiwahl));
+    h('div', { class: 'composer__inner' }, composerMeta(), box, dateiwahl));
 
+  unsubscribe.push(on('status', syncComposerMeta));
+  syncComposerMeta(state.status);
   if (!askMode) wireDropzone(box);
   return wrapper;
+}
+
+function composerMeta() {
+  const select = h('select', {
+    class: 'composer__model',
+    'aria-label': 'Chat-Modell',
+    onchange: (event) => changeChatModel(event.target.value),
+  });
+  const checkbox = h('input', {
+    type: 'checkbox',
+    onchange: (event) => changeThinking(event.target.checked),
+  });
+  const think = h('label', { class: 'switch composer__think' },
+    checkbox,
+    h('span', { class: 'switch__track' }),
+    h('span', { class: 'composer__think-label', text: 'Thinking' }));
+  elements.modelSelect = select;
+  elements.thinkToggle = checkbox;
+  elements.thinkLabel = think;
+  return h('div', { class: 'composer__side' }, select, think);
+}
+
+function fillModelSelect(select, status) {
+  const current = status?.model?.name || '';
+  const models = (status?.models || []).filter((model) => !/embed/i.test(model.name || ''));
+  const names = models.map((model) => model.name);
+  const signature = `${current}|${names.join(',')}`;
+  if (select.dataset.sig === signature) {
+    select.value = current || '';
+    return;
+  }
+  select.dataset.sig = signature;
+  clear(select);
+  if (current && !names.includes(current)) {
+    select.append(h('option', { value: current, text: current }));
+  }
+  if (!names.length && !current) {
+    select.append(h('option', { value: '', text: 'kein Modell' }));
+  }
+  for (const model of models) {
+    select.append(h('option', { value: model.name, text: model.name }));
+  }
+  select.value = current || '';
+  select.disabled = !models.length && !current;
+}
+
+function syncComposerMeta(status) {
+  const select = elements.modelSelect;
+  const checkbox = elements.thinkToggle;
+  const label = elements.thinkLabel;
+  if (!select || !checkbox || !label) return;
+  fillModelSelect(select, status);
+  const canThink = Boolean(status?.model?.thinking);
+  checkbox.disabled = !canThink;
+  checkbox.checked = canThink && Boolean(status?.ai?.thinking);
+  label.classList.toggle('is-disabled', !canThink);
+  label.title = canThink
+    ? 'Denkprozess des Modells ein- oder ausschalten.'
+    : 'Dieses Modell unterstützt keinen Denkprozess.';
+}
+
+async function patchProfile(body) {
+  const id = state.status?.profile?.id;
+  if (!id) return;
+  try {
+    await api.updateProfile(id, body);
+    await refreshStatus();
+  } catch (error) {
+    toast(error.message, 'bad');
+  }
+}
+
+function changeChatModel(name) {
+  if (!name || name === state.status?.model?.name) return;
+  patchProfile({ ollama: { chat_model: name } });
+}
+
+function changeThinking(enabled) {
+  if (!state.status?.model?.thinking) return;
+  patchProfile({ ai: { thinking: enabled } });
 }
 
 /* -------------------------------------------------------- Anhänge */

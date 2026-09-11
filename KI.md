@@ -21,6 +21,24 @@ Vault-Hauptseite und danach die allgemeinen Vorgaben aus dieser Datei.
 
 ---
 
+## Empfohlene Modelle (Stand 11. September 2026)
+
+Das Standard-Chatmodell ist **`qwen3.5:9b`** (bei Ollama gibt es kein `qwen3:9b`).
+Thinking ist standardmäßig an und lässt sich in der Eingabe abschalten.
+
+| Modell | Kann | Kann nicht / Grenzen |
+|---|---|---|
+| `qwen3.5:9b` | Deutsch, Thinking, Werkzeuge, Bilder und Scans für diese App | Braucht etwa 8 GB Speicher; Thinking kostet Zeit; kein Audio, keine Cloud |
+| `qwen3.5:4b` | Dieselbe Familie, schneller, Thinking möglich | Schwächer bei langen Notizen, schwierigen Bildern und Werkzeugketten |
+| `qwen3-vl:8b` | Fotos, Screenshots, gescannte PDFs | Kein voller Allrounder: Text, Thinking und Vault-Werkzeuge oft schwächer |
+| `nomic-embed-text` | Lokale Bedeutungs-Suche über den Wissensindex | Kein Chat, keine Bilder, keine Notizen schreiben |
+
+Chats, Profile und Uploads liegen im Ordner `data` neben der EXE. Ein Update
+gehört in denselben Ordner; `data` nicht löschen und nicht in einen neuen leeren
+Ordner entpacken. Die Notizen selbst stehen im gewählten Vault.
+
+---
+
 ## Zielbild
 
 Die Anwendung ist keine allgemeine Chat-KI mit angehängtem Datei-Browser. Sie
@@ -468,7 +486,7 @@ Die Oberfläche stellt dieselben Sicherheits- und Abschlussregeln sichtbar dar:
 - Chatverlauf, Anhänge und Werkzeugquellen bleiben nachvollziehbar.
 Der reproduzierbare Windows-Build erzeugt weiterhin die von der bestehenden
 Desktop-Verknüpfung verwendete `dist/Lokale-Wissens-KI.exe` und zusätzlich die
-weitergabefähige One-File-Kopie `dist/KnowHow Tool v1.1.exe`. Frontend und
+weitergabefähige One-File-Kopie `dist/KnowHow Tool.exe`. Frontend und
 Laufzeit sind in dieser EXE enthalten; persönliche Vaults und der Ordner
 `data/` werden nicht in die Weitergabedatei aufgenommen.
 

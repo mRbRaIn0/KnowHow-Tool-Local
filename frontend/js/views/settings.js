@@ -155,7 +155,9 @@ function ollamaCard(profile, view) {
         }, 'Herunterladen'))),
     models.length
       ? h('p', { class: 'field__hint', text: `${models.length} Modelle lokal installiert.` })
-      : h('p', { class: 'field__hint', text: 'Keine Modelle gefunden — läuft Ollama?' }));
+      : h('p', { class: 'field__hint', text: 'Keine Modelle gefunden — läuft Ollama?' }),
+    h('p', { class: 'field__hint', style: 'margin-top:10px',
+      text: 'Stand 11.09.2026: Standard ist qwen3.5:9b (Thinking an) — Allrounder mit Deutsch, Werkzeugen und Bildern, braucht etwa 8 GB. qwen3.5:4b ist schneller, aber schwächer. qwen3-vl:8b eignet sich extra für Fotos und Scans, ersetzt den 9B-Allrounder nicht. nomic-embed-text ist nur die Suche, kein Chat. Chats liegen im Ordner data neben der EXE; bei Updates diesen Ordner behalten.' })));
 }
 
 function modelSelect(value, onChange, allowEmpty = false) {
@@ -180,7 +182,7 @@ function modelSelect(value, onChange, allowEmpty = false) {
 function dataCard(profile, view) {
   const pathInput = h('input', {
     class: 'input input--mono', value: profile.vault.path,
-    placeholder: 'z. B. D:\\AI-Wissen',
+        placeholder: 'z. B. C:\\Vault',
     onchange: (event) => patch({ vault: { path: event.target.value.trim() } }, true),
   });
 
@@ -357,6 +359,10 @@ function renderContext(host) {
         h('dt', { text: 'Datenbank' }), h('dd', { text: `data/profiles/${settings.active_profile}/app.db` }),
         h('dt', { text: 'Protokoll' }), h('dd', { text: 'data/logs/app.log' }),
         h('dt', { text: 'Vault' }), h('dd', { text: settings.profile.vault.path || '–' }))),
+    h('div', { class: 'ctx-block' },
+      h('span', { class: 'label', text: 'Update' }),
+      h('p', { class: 'field__hint', style: 'margin:0',
+        text: 'Neue EXE in denselben Ordner legen und den Ordner data behalten. Chats überleben das, solange data nicht in einen neuen leeren Ordner wandert.' })),
     h('div', { class: 'ctx-block' },
       h('span', { class: 'label', text: 'Trennung' }),
       h('p', { class: 'field__hint', style: 'margin:0',

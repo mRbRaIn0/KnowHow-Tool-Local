@@ -128,6 +128,21 @@ class Database:
                 self._conn.execute(
                     "ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
                 )
+            # Ältere DBs hatten schmalere messages-Tabellen. Neue Spalten
+            # ergänzen, niemals die Tabelle neu anlegen — sonst wären Chats weg.
+            message_columns = {
+                row["name"] for row in self._conn.execute("PRAGMA table_info(messages)")
+            }
+            for name, definition in (
+                ("thinking", "TEXT NOT NULL DEFAULT ''"),
+                ("attachments", "TEXT NOT NULL DEFAULT '[]'"),
+                ("sources", "TEXT NOT NULL DEFAULT '[]'"),
+                ("model", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if name not in message_columns:
+                    self._conn.execute(
+                        f"ALTER TABLE messages ADD COLUMN {name} {definition}"
+                    )
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chats_purpose_updated "
                 "ON chats(purpose, updated_at DESC)"
@@ -139,6 +154,10 @@ class Database:
 
     def close(self) -> None:
         with self._lock:
+            try:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
             try:
                 self._conn.close()
             except sqlite3.Error:
@@ -452,16 +471,24 @@ def _row_to_folder(row: sqlite3.Row) -> Dict[str, Any]:
     return folder
 
 
+def _row_value(row: sqlite3.Row, key: str, default: Any = "") -> Any:
+    try:
+        value = row[key]
+    except (KeyError, IndexError):
+        return default
+    return default if value is None else value
+
+
 def _row_to_message(row: sqlite3.Row) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "chat_id": row["chat_id"],
         "role": row["role"],
         "content": row["content"],
-        "thinking": row["thinking"],
-        "attachments": _json_or(row["attachments"], []),
-        "sources": _json_or(row["sources"], []),
-        "model": row["model"],
+        "thinking": _row_value(row, "thinking", ""),
+        "attachments": _json_or(_row_value(row, "attachments", "[]"), []),
+        "sources": _json_or(_row_value(row, "sources", "[]"), []),
+        "model": _row_value(row, "model", ""),
         "created_at": row["created_at"],
     }
 

@@ -90,7 +90,7 @@ class AISettings(BaseModel):
     temperature: float = 0.7
     num_ctx: int = 8192
     rag_top_k: int = 6
-    thinking: bool = False
+    thinking: bool = True
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
 
@@ -143,6 +143,21 @@ class ServerSettings(BaseModel):
 
 
 CONFIG_VERSION = 2
+DATA_HINT_NAME = "HINWEIS.txt"
+DATA_HINT = (
+    "KnowHow Tool speichert hier Profile, Chats, Uploads und lokale Einstellungen.\n"
+    "Die Notizen selbst liegen im gewählten Vault-Ordner, nicht in diesem Verzeichnis.\n"
+    "\n"
+    "Bei einem Update:\n"
+    "1. Die laufende App vollständig beenden.\n"
+    "2. Die neue EXE in denselben Ordner legen wie die bisherige "
+    "(Dateien ersetzen). Der Ordnername der EXE darf sich ändern, "
+    "dieser data-Ordner muss liegen bleiben.\n"
+    "3. Diesen Ordner nicht löschen und das ZIP nicht in einen neuen "
+    "leeren Ordner entpacken, sonst entstehen leere Chats.\n"
+    "4. Fehlt nach dem Start der Verlauf: den alten data-Ordner hierher kopieren "
+    "und die App erneut starten.\n"
+)
 
 
 class AppConfig(BaseModel):
@@ -226,6 +241,16 @@ class ConfigStore:
             if profile.ai.system_prompt.strip() in LEGACY_SYSTEM_PROMPTS:
                 profile.ai.system_prompt = DEFAULT_SYSTEM_PROMPT
             profile.data_dir.mkdir(parents=True, exist_ok=True)
+        self._write_data_hint()
+
+    def _write_data_hint(self) -> None:
+        hint = self.path.parent / DATA_HINT_NAME
+        if hint.exists():
+            return
+        try:
+            hint.write_text(DATA_HINT, encoding="utf-8")
+        except OSError:
+            pass
 
     def save(self) -> None:
         with self._lock:

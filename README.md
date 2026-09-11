@@ -28,21 +28,38 @@ Weitere Funktionen:
 ## Schnellstart unter Windows
 
 1. **Ollama einrichten.** Installiere [Ollama für Windows](https://ollama.com/download/windows)
-   und stelle ein Chat-Modell mit Bild- und Werkzeugunterstützung bereit.
-   Der geprüfte Modellstand verwendet `qwen3.5:9b` und `nomic-embed-text`:
+   und lade mindestens das Standardmodell plus das Suchmodell. Stand 11. September 2026:
+
+   | Modell | Rolle |
+   |---|---|
+   | **`qwen3.5:9b`** (Standard) | Allrounder für diese App: Deutsch, Thinking, Werkzeuge, Bilder und gescannte Seiten. Braucht etwa 8 GB Grafik- oder Arbeitsspeicher. Thinking macht Antworten gründlicher, aber langsamer. Kein Audio, keine Cloud. |
+   | **`qwen3.5:4b`** | Kleiner und schneller. Thinking möglich. Schwächer bei langen Notizen, schwierigen Scans und kniffligen Werkzeugaufträgen. Gut, wenn der 9B-Stand zu langsam ist. |
+   | **`qwen3-vl:8b`** | Besonders für Fotos, Screenshots und gescannte PDFs. Kein voller Ersatz für den 9B-Allrounder: Text, Thinking und Vault-Werkzeuge sind oft schwächer. |
+   | **`nomic-embed-text`** (Suche) | Nur für die lokale Wissenssuche, kein Chat. Ohne dieses Modell bleiben Stichwortsuche und Dateibrowser nutzbar, die Bedeutungs-Suche fehlt. |
 
    ```powershell
    ollama pull qwen3.5:9b
    ollama pull nomic-embed-text
    ```
 
-   Diese Einrichtung benötigt Internet. Der spätere Betrieb kann offline erfolgen.
+   Optional bei wenig Speicher bzw. viel Bildarbeit:
+
+   ```powershell
+   ollama pull qwen3.5:4b
+   ollama pull qwen3-vl:8b
+   ```
+
+   In der App steht Thinking beim Standardmodell an. Du kannst es neben der Eingabe
+   ein- und ausschalten. Die Einrichtung braucht Internet; der spätere Betrieb kann
+   offline erfolgen.
 
 2. **Release entpacken.** Lade `KnowHow-Tool-v1.1-Windows.zip` aus den
    [Releases](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
    und entpacke es in einen beschreibbaren lokalen Ordner, beispielsweise
-   `%LOCALAPPDATA%/KnowHow-Tool`.
-3. **App starten.** Öffne `KnowHow Tool v1.1.exe`. Python wird für die EXE nicht
+   `%LOCALAPPDATA%/KnowHow-Tool`. Chats liegen im Ordner `data` **neben** der EXE.
+   Bei einem Update denselben Ordner verwenden und `data` behalten — nicht in einen
+   neuen leeren Ordner entpacken.
+3. **App starten.** Öffne `KnowHow Tool.exe`. Python wird für die EXE nicht
    benötigt. Ollama und die Modelle sind separat erforderlich.
 4. **Profil und Wissensordner wählen.** Wähle in den Einstellungen einen eigenen
    lokalen Ordner oder einen vorhandenen Obsidian-Vault. Für getrennte Daten
@@ -94,6 +111,23 @@ Unter **Einstellungen → Daten → Backup** kannst du Vault, Profilkonfiguratio
 und Datenbank lokal sichern. Die App übernimmt keine automatische
 Synchronisation zwischen Geräten.
 
+## Aktualisieren (Chats behalten)
+
+Chats, Profile und Einstellungen überleben ein Update nur, wenn der Ordner
+`data` am gleichen Ort bleibt. Der Vault (Notizen) liegt separat im gewählten
+Wissensordner und bleibt davon unberührt.
+
+1. Die laufende App vollständig beenden. Eine alte Instanz darf nicht weiterlaufen.
+2. Das neue ZIP aus den Releases herunterladen.
+3. Den Inhalt **in denselben Ordner** entpacken, in dem bereits `KnowHow Tool.exe`
+   liegt, und vorhandene Dateien ersetzen. Den Ordner `data` nicht löschen.
+4. `KnowHow Tool.exe` starten. Verlauf und Vault-Pfad sind dieselben wie zuvor.
+
+Nicht in einen neuen leeren Ordner entpacken — dort entsteht ein leerer
+`data`-Ordner und der Verlauf wirkt verschwunden. In diesem Fall den alten
+`data`-Ordner neben die neue EXE kopieren und neu starten. Unter Windows die
+App nicht aus dem ZIP-Explorer heraus starten, sondern zuerst entpacken.
+
 ## Datenschutz
 
 - Backend nur auf `127.0.0.1`, mit wechselndem Port und Sitzungsschlüssel.
@@ -129,7 +163,7 @@ Quellenbehandlung und Schreibkontrollen.
 powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
 ```
 
-Der Build erzeugt `dist/KnowHow Tool v1.1.exe`, das Release-ZIP und
+Der Build erzeugt `dist/KnowHow Tool.exe`, das Release-ZIP und
 `dist/SHA256SUMS.txt`. Lizenzhinweise werden aus der installierten Umgebung
 zusammengestellt und mitgeliefert. Für reproduzierbare Ergebnisse eine frische
 Umgebung mit `requirements.txt` und `requirements-build.txt` verwenden.

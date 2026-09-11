@@ -15,12 +15,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Drittanbieter-Lizenzhinweise konnten nicht ges
 & $python -m PyInstaller --noconfirm --clean 'Lokale-Wissens-KI.spec'
 if ($LASTEXITCODE -ne 0) { throw 'Windows-Build fehlgeschlagen.' }
 $hauptExe = Join-Path $PSScriptRoot 'dist\Lokale-Wissens-KI.exe'
+$stableExe = Join-Path $PSScriptRoot 'dist\KnowHow Tool.exe'
 $releaseExe = Join-Path $PSScriptRoot 'dist\KnowHow Tool v1.1.exe'
+Copy-Item -LiteralPath $hauptExe -Destination $stableExe -Force
 Copy-Item -LiteralPath $hauptExe -Destination $releaseExe -Force
 foreach ($bundleDoc in @('README.md', 'KI.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $bundleDoc) -Destination (Join-Path $PSScriptRoot 'dist')
 }
-$releaseFiles = @($releaseExe) + @('README.md', 'KI.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt') | ForEach-Object {
+$releaseFiles = @($stableExe) + @('README.md', 'KI.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt') | ForEach-Object {
     if ([IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $PSScriptRoot "dist\$_" }
 }
 $releaseZip = Join-Path $PSScriptRoot 'dist\KnowHow-Tool-v1.1-Windows.zip'
@@ -32,10 +34,10 @@ try {
 } finally {
     $zipArchive.Dispose()
 }
-Get-FileHash -LiteralPath $releaseExe, $releaseZip -Algorithm SHA256 |
+Get-FileHash -LiteralPath $stableExe, $releaseZip -Algorithm SHA256 |
     ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))" } |
     Set-Content -LiteralPath (Join-Path $PSScriptRoot 'dist\SHA256SUMS.txt') -Encoding ascii
 Write-Host ''
 Write-Host 'Fertig: dist\Lokale-Wissens-KI.exe' -ForegroundColor Green
-Write-Host 'Kopie:  dist\KnowHow Tool v1.1.exe' -ForegroundColor Green
+Write-Host 'Kopie:  dist\KnowHow Tool.exe' -ForegroundColor Green
 Write-Host 'Paket:  dist\KnowHow-Tool-v1.1-Windows.zip' -ForegroundColor Green
