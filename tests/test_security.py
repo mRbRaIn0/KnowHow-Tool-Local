@@ -132,7 +132,7 @@ def test_lokale_hosts_sind_erlaubt(client):
 # --------------------------------------------------------------------- CSRF
 
 def test_schutz_gilt_fuer_alle_bereiche_nicht_nur_die_bibliothek(client):
-    """Früher prüfte ausschließlich /api/library den Ursprung."""
+    """Alle schreibenden API-Routen müssen fremde Ursprünge abweisen."""
     client.get(f"/?{security.QUERY_NAME}={SCHLUESSEL}")          # Cookie holen
     for pfad in SCHREIBENDE_PFADE:
         antwort = client.post(pfad, headers={"Origin": FREMD})

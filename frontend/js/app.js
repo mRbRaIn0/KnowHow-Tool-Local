@@ -19,7 +19,6 @@ const VIEW_LOADERS = {
   search: () => import('./views/search.js'),
   settings: () => import('./views/settings.js'),
   knowledge: () => import('./views/knowledge.js'),
-  library: () => import('./views/library.js'),
   images: () => import('./views/images.js'),
   notes: () => import('./views/notes.js'),
   templates: () => import('./views/templates.js'),

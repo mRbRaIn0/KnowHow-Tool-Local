@@ -169,7 +169,7 @@ def selbsttest(bericht: str) -> None:
                   "sitzungsschutz": len(security.SESSION_TOKEN) >= 32,
                   "fenster": fenster_art(),
                   "frozen": bool(getattr(sys, "frozen", False))}
-    for relative in ("frontend/js/views/library.js", "backend/docling_worker.py", "setup-docling.ps1"):
+    for relative in ("frontend/js/views/chat.js", "frontend/js/views/knowledge.js", "templates/Standard.md", "LICENSE"):
         if not (RUNTIME_ROOT / relative).is_file():
             raise RuntimeError("Paketdatei fehlt: " + relative)
     Path(bericht).write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -189,7 +189,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--no-browser", action="store_true", help="Oberflaeche nicht oeffnen")
-    parser.add_argument("--no-ollama", action="store_true", help="Ollama nicht automatisch starten (z. B. nur Tagging)")
+    parser.add_argument("--no-ollama", action="store_true", help="Ollama nicht automatisch starten")
     parser.add_argument("--reload", action="store_true", help="Entwicklungsmodus")
     parser.add_argument("--self-test", metavar="REPORT", help="Offline-Paketprüfung; JSON-Bericht schreiben und beenden")
     args = parser.parse_args()

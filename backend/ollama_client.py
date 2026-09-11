@@ -171,20 +171,6 @@ class OllamaClient:
         except httpx.HTTPError as exc:
             raise self._connection_error(exc) from exc
 
-    async def structured(self, model: str, messages: List[Dict[str, Any]], schema: dict) -> dict:
-        """Schema constrained, non-agentic classification. Never supplies tools."""
-        try:
-            async with self._client() as client:
-                response = await client.post("/api/chat", json={
-                    "model": model, "messages": messages, "stream": False,
-                    "format": schema, "think": False,
-                    "options": {"temperature": 0, "num_ctx": 16384},
-                })
-                response.raise_for_status()
-                return json.loads(response.json()["message"]["content"])
-        except httpx.HTTPError as exc:
-            raise self._connection_error(exc) from exc
-
     async def embed(self, model: str, inputs: List[str]) -> List[List[float]]:
         """Embeddings über /api/embed (Batch wird von Ollama unterstützt)."""
         try:

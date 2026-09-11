@@ -103,7 +103,7 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._migrate()
         if existing and self.get_meta("search_schema") != "1":
-            self.backup_to(path.with_name("app.before-library-v1.db"))
+            self.backup_to(path.with_name("app.before-search-v1.db"))
         from .search_index import SearchIndex
         self.search = SearchIndex(self)
         self.search.migrate_vault()

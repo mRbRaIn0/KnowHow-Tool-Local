@@ -37,5 +37,5 @@ async def search(q: str, limit: int = 8) -> Dict[str, Any]:
         profile.vault_path, current_db(profile), q, current_ollama(profile),
         profile.ollama.embed_model, max(1, min(limit, 20)),
         excluded_dirs=(profile.vault.templates_dir,),
-        refresh=False, include_library=profile.library.enabled,
+        refresh=False,
     )

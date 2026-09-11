@@ -106,13 +106,6 @@ class VaultSettings(BaseModel):
     templates_dir: str = "00 Templates"
 
 
-class LibrarySettings(BaseModel):
-    enabled: bool = False
-    poll_seconds: int = Field(default=300, ge=30, le=86400)
-    docling_python: str = ""
-    docling_models: str = ""
-
-
 class Profile(BaseModel):
     id: str
     name: str
@@ -120,7 +113,6 @@ class Profile(BaseModel):
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     ai: AISettings = Field(default_factory=AISettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
-    library: LibrarySettings = Field(default_factory=LibrarySettings)
 
     @property
     def vault_path(self) -> Optional[Path]:

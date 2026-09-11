@@ -235,12 +235,11 @@ getrennt:
 
 - Er besitzt eine eigene, nach `purpose = ask` gefilterte Verlaufsliste.
 - Jede ausreichend lange Frage durchsucht automatisch das freigegebene lokale
-  Vault- und gegebenenfalls NAS-Bibliothekswissen.
+  Vault-Wissen.
 - Passende Treffer werden als nicht vertrauenswürdige Quelldaten in den
   Modellkontext aufgenommen. Inhalte einer Quelle sind niemals Anweisungen.
 - Konkrete lokale Aussagen sollen mit dem vorhandenen WikiLink sowie bei PDFs
-  mit der Seitenzahl belegt werden. NAS-Treffer werden mit Pfad und Datei-ID
-  genannt.
+  mit der Seitenzahl belegt werden.
 - Allgemeines Modellwissen darf lokale Lücken ergänzen, muss aber ausdrücklich
   als nicht aus der lokalen Wissensbasis stammend erkennbar sein.
 - Widersprechen lokale Quellen dem allgemeinen Modellwissen, muss die Antwort
@@ -411,13 +410,15 @@ funktionsfähig. Suchtreffer liefern Kontext und Quellen; sie definieren niemals
 den Umfang eines globalen Dateiänderungsauftrags.
 
 Im Bereich **Wissen fragen** ist die Wissenssuche nicht optional: Wenn ein Vault
-oder eine freigegebene NAS-Bibliothek verfügbar ist, wird sie für jede
+verfügbar ist, wird sie für jede
 inhaltliche Frage ausgeführt. Gibt es keine passenden lokalen Treffer, darf das
 Modell trotzdem antworten, muss die Ergänzung jedoch als allgemeines KI-Wissen
 kenntlich machen. Der RAG-Kontext erteilt niemals Schreibrechte.
 
 Der Datei-Watcher gleicht Änderungen aus Obsidian im Hintergrund mit dem Index
-ab. Ein manueller Neuaufbau ist weiterhin möglich.
+ab. Vor jeder Wissensfrage werden zusätzlich neue/geänderte Dateien abgeglichen,
+damit unmittelbar zuvor hinzugefügtes Wissen berücksichtigt wird. Ein manueller
+Neuaufbau ist weiterhin möglich.
 
 ---
 
@@ -439,11 +440,6 @@ Im normalen Betrieb:
 - gibt es keine Telemetrie, Analytics oder externen CDN-Ressourcen,
 - bleiben Protokolle lokal,
 - werden Modelle nicht ungefragt aus dem Internet geladen.
-
-Die NAS-Bibliothek ist ein eigener, zusätzlich freizugebender Bereich. Sie ist
-nicht automatisch Teil des Vaults und besitzt separate Quellen-, Such-, Tag-,
-Prüf- und Ablagefreigaben. KI-Vorschläge in der Bibliothek sind Entwürfe; sie
-führen niemals automatisch Dateiaktionen aus.
 
 ---
 
@@ -470,13 +466,9 @@ Die Oberfläche stellt dieselben Sicherheits- und Abschlussregeln sichtbar dar:
 - Antworten laufen beim Ansichtswechsel weiter.
 - Ein abgebrochener Browserstream verliert den bereits erzeugten Text nicht.
 - Chatverlauf, Anhänge und Werkzeugquellen bleiben nachvollziehbar.
-- Unten links nennt ein dauerhaft sichtbarer Kontaktblock die Adresse
-  `jzinser@spirit21.com` und die Produktversion `1.0`; in der schmalen
-  Symbolnavigation wird der Block ausgeblendet, damit nichts überläuft.
-
 Der reproduzierbare Windows-Build erzeugt weiterhin die von der bestehenden
 Desktop-Verknüpfung verwendete `dist/Lokale-Wissens-KI.exe` und zusätzlich die
-weitergabefähige One-File-Kopie `dist/KnowHow Tool v1.0.exe`. Frontend und
+weitergabefähige One-File-Kopie `dist/KnowHow Tool v1.1.exe`. Frontend und
 Laufzeit sind in dieser EXE enthalten; persönliche Vaults und der Ordner
 `data/` werden nicht in die Weitergabedatei aufgenommen.
 
@@ -578,11 +570,12 @@ Die automatisierten Tests unter `tests/` prüfen unter anderem:
 - Anlegen, Filtern, Umbenennen und Löschen von Chat-Ordnern,
 - Verschieben und Archivieren von Chats sowie Inhaltserhalt nach dem Löschen
   eines Ordners,
-- Backups, Wissensindex und NAS-Bibliothek.
+- Backups und lokaler Wissensindex.
 
 Vor einer Freigabe sollen mindestens ausgeführt werden:
 
 ```powershell
+.\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe -m compileall -q backend run.py
 ```
@@ -591,6 +584,10 @@ Zusätzlich werden alle JavaScript-Dateien mit `node --check` geprüft. Kritisch
 Vault-Abläufe sollen außerdem über die echte API und anschließend unabhängig am
 Dateisystem kontrolliert werden.
 
+Für V1.1 stehen dafür `tests/manual_local_validation.py` (lokales Ollama mit
+synthetischen Bild-/Dokumentdaten) und `tests/manual_frozen_validation.py`
+(portable EXE) bereit. Prüfergebnisse: [Release V1.1](docs/RELEASE-V1.1.md).
+
 ---
 
 ## Pflege dieser Spezifikation
@@ -598,5 +595,4 @@ Dateisystem kontrolliert werden.
 Diese Datei soll aktualisiert werden, wenn sich das Verhalten der KI, ihre
 Werkzeuge, Sicherheitsgrenzen, Abschlusskontrolle oder Vault-Strukturregeln
 ändern. Reine Installations- und Bedienungsdetails gehören primär in die
-[README](README.md); NAS-spezifische Abnahmeschritte stehen zusätzlich in
-[docs/NAS-VALIDIERUNG.md](docs/NAS-VALIDIERUNG.md).
+[README](README.md).

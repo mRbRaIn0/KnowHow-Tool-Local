@@ -3,13 +3,13 @@ data/
 
 # Python
 .venv/
-.venv-docling/
 __pycache__/
 *.py[cod]
 .test-runtime/
 .test-pytest*/
 .test-index-check/
 .pytest_cache/
+tests/tmp*/
 
 # Packaging
 build/
@@ -18,3 +18,6 @@ dist/
 # Windows
 Thumbs.db
 desktop.ini
+
+# Lokale Release-Archive
+KnowHow-Tool-*-Windows.zip

@@ -21,9 +21,7 @@ from .config import BUNDLE_ROOT, LOG_DIR, build_fingerprint, store
 from .database import registry
 from .watcher import watcher
 from .vault_guide import ensure_vault_guide
-from .routers import backups, chat, files, knowledge, search, settings, system, templates, uploads, library
-from .library_models import LibraryError
-from .library_jobs import manager as library_manager
+from .routers import backups, chat, files, knowledge, search, settings, system, templates, uploads
 from .knowledge_worker import knowledge_worker
 
 FRONTEND_DIR = BUNDLE_ROOT / "frontend"
@@ -82,7 +80,6 @@ async def lifespan(app: FastAPI):
         except OSError as exc:
             log.warning("Vault-Hauptdatei konnte nicht gepflegt werden: %s", exc)
     watcher.ensure(profile.id, profile.vault_path)
-    library_manager.start()
     knowledge_worker.start()
     entfernt = attachments.cleanup_old()
     if entfernt:
@@ -90,15 +87,13 @@ async def lifespan(app: FastAPI):
     log.info("Start — Profil '%s', Vault '%s'", profile.name, profile.vault.path or "(nicht gesetzt)")
     yield
     watcher.stop()
-    library_manager.stop()
     knowledge_worker.stop()
-    if (not library_manager.thread or not library_manager.thread.is_alive()) and (
-            not knowledge_worker.thread or not knowledge_worker.thread.is_alive()):
+    if not knowledge_worker.thread or not knowledge_worker.thread.is_alive():
         registry.close_all()
     log.info("Beendet.")
 
 
-app = FastAPI(title="KnowHow Tool", version="1.0", lifespan=lifespan,
+app = FastAPI(title="KnowHow Tool", version="1.1", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 
 
@@ -182,12 +177,6 @@ app.include_router(templates.router)
 app.include_router(uploads.router)
 app.include_router(settings.router)
 app.include_router(backups.router)
-app.include_router(library.router)
-
-
-@app.exception_handler(LibraryError)
-async def library_error(request: Request, exc: LibraryError):
-    return JSONResponse(status_code=409, content={"detail": {"message": str(exc), "kind": "library"}})
 
 
 BUILD = build_fingerprint()

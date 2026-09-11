@@ -1,4 +1,4 @@
-# KnowHow Tool
+# KnowHow Tool V1.1
 
 Eine vollständig lokale Wissens- und KI-Anwendung für Windows. Sie verbindet
 deine Obsidian-Vaults und normalen Ordner direkt mit einem lokal laufenden
@@ -52,7 +52,6 @@ was du tun könntest — sie tut es.
 | Reproduzierbarer Windows-`.exe`-Build mit PyInstaller | fertig |
 | Eigenes App-Fenster (WebView2) statt Systembrowser | fertig |
 | Sitzungsschlüssel, wechselnder Port, Host- und Ursprungsprüfung | fertig |
-| Separate NAS-Bibliothek: Quellen, Tags, geprüfte Ablage, JSON-Metadaten | umgesetzt, auf bestehenden Profilen zunächst aus |
 
 ---
 
@@ -316,266 +315,15 @@ Die Suche ist hybrid:
   Stichwortsuche weiter.
 
 Der Index wird im Hintergrund mit neuen, geänderten und gelöschten
-Vault-Dateien abgeglichen. Eine Chat- oder Wissenssuchanfrage liest nur die
-Suchindizes; sie startet keinen NAS-Scan. FTS5 und das optionale sqlite-vec
+Vault-Dateien abgeglichen. Vor einer Frage im Bereich **Wissen fragen** werden
+zusätzlich neue und geänderte Vault-Dateien abgeglichen. Die übrigen Suchanfragen
+lesen den vorhandenen Index. FTS5 und das optionale sqlite-vec
 liefern begrenzte Treffermengen direkt aus SQLite, ohne die frühere Grenze
 von 20.000 geladenen Abschnitten. Passende Abschnitte gelangen mit ihrem
 Pfad und — bei PDFs — der Seitenzahl in den Modellkontext. Konkrete Aussagen
 können dadurch als `[[Ordner/Notiz]]` beziehungsweise mit PDF-Seite belegt
 werden. Der Button „Neu aufbauen“ im Wissensbereich erzwingt eine vollständige
 Neuindizierung.
-
-## NAS-Bibliothek: eigene Ordnung für PC und UGREEN-NAS
-
-Die **NAS-Bibliothek** ist vom bisherigen Vault-Browser getrennt. Windows
-betreibt App, SQLite, Ollama und Dokumentverarbeitung. Das UGREEN DXP2800
-stellt normale SMB-Freigaben bereit; auf dem NAS sind weder Docker noch
-ein KI-Dienst nötig. Dateien bleiben gewöhnliche Dateien. Es gibt keine
-Tags in Dateinamen, keine Änderung eingebetteter Metadaten und keine
-JSON-Datei neben jedem Original.
-
-### Einrichten und arbeiten
-
-1. Im gewünschten Profil **NAS-Bibliothek → Für dieses Profil aktivieren**
-   wählen. Bestehende Profile bleiben bis dahin deaktiviert. Die Aktivierung
-   erfasst keine Ordner automatisch.
-2. Unter **Quellen & Sicherung → Quelle hinzufügen** gezielt PC-Ordner und
-   NAS-Freigaben registrieren. Beispiele: `D:\Eingang` und
-   `\\UGREEN\Archiv`. Die Freigabe muss bereits im Windows-Explorer erreichbar
-   sein. SMB-Anmeldung und Zugangsdaten verwaltet Windows, nicht die App.
-   UNC-Pfade sind als konfigurierte **Wurzel** zulässig; Datei-API-Pfade
-   innerhalb dieser Wurzel müssen relativ sein. Keine Freigabe mehrfach
-   unter unterschiedlichen Laufwerks-/UNC-Aliasen registrieren.
-3. Für jede Quelle **Nur lesen**, **Ablage freigeben**, Überwachung und ggf.
-   **JSON-Sicherungsziel** bewusst einstellen. Die Sicherung benötigt
-   Schreibzugriff. Möglichst eine eigene NAS-Freigabe verwenden; weder das
-   gesamte Systemlaufwerk noch das App-Datenverzeichnis freigeben.
-4. **Erfassen** startet einen Hintergrundscan. Er liest Verzeichnisnamen,
-   Größen und Änderungszeiten, kopiert nichts und verändert keine Originale.
-   Es entsteht noch kein Inhaltsindex und keine KI-Analyse.
-5. Unter **Struktur & Tags** eigene Zielordner, Tag-Gruppen und Ablageregeln
-   anlegen. Ein vorhandener Ordner kann als Ziel registriert werden; ein
-   neuer Ordner entsteht erst nach Vorschau und Freigabe. Die App übernimmt
-   keine PC-Ordnerstruktur auf das NAS. Zielbezeichnungen und Zuordnungen
-   lassen sich später bearbeiten, ohne damit physische Ordner umzubenennen.
-6. In **Bibliothek** nach Quelle, relativem Ordner, Dateiendung, Tag,
-   Prüfstatus oder exakten Duplikaten filtern. Die Suche erfasst Namen,
-   Pfade, bestätigte Tags und Beschreibungen. Gespeicherte Filter sind
-   virtuelle Sammlungen; sie bewegen keine Dateien. Auch die globale Suche
-   zeigt Bibliothekstreffer als eigene Gruppe.
-7. Dateien ausdrücklich auswählen. **Tags bearbeiten** funktioniert ohne
-   Ollama. **KI-Vorschläge** analysiert nur die Auswahl und erstellt Entwürfe.
-   Unter **Prüfen** vorhandene Metadaten mit dem Vorschlag vergleichen,
-   bearbeiten, ablehnen oder übernehmen. Bei mehreren ausgewählten Dateien
-   ersetzt die gemeinsame Metadateneingabe deren Tags und Beschreibung;
-   die Vorschau zeigt jeden betroffenen Eintrag. Ungeprüfte KI-Entwürfe
-   bleiben auch nach einem Neustart ungeprüft.
-8. Erst **Ablage planen** erstellt einen separaten Vorschlag für Kopieren,
-   Verschieben oder Umbenennen. Standard ist **Kopieren – Original behalten**.
-   Aktion, Quelle, Ziel und Auswahl prüfen, dann **Diese Ablage freigeben**.
-   Eine KI- oder Tag-Freigabe ist niemals zugleich eine Ablagefreigabe.
-
-Die Ansicht lädt 100 Katalogeinträge pro Seite (API maximal 200). Ein
-Arbeitsauftrag umfasst bis zu 500 ausdrücklich ausgewählte Dateien;
-Obsidian-Notizen bis zu 100. Checkboxen, Schaltflächen und Dialoge sind
-mit Tab, Umschalt+Tab, Leertaste/Enter erreichbar; Escape schließt Dialoge.
-Die Datei-Detailansicht zeigt Vorschau, stabile ID und bestätigte Metadaten
-in der Kontextspalte. Falls diese verborgen ist, oben **Kontextspalte** öffnen.
-
-Tag-Gruppen beschreiben die eigene Taxonomie. Ablageregeln ordnen eine
-ausdrücklich festgelegte Tag-Kombination einem freigegebenen Ziel zu. Passende
-Regeln erscheinen beim Prüfen einer Datei; sie führen keine Aktionen aus.
-KI-Vorschläge dürfen nur registrierte Ziele nennen und können niemals
-Schreibfreigaben, Suchfreigaben oder Freigabeschritte verändern.
-
-### Inhaltssuche und Obsidian
-
-Alle Dateitypen lassen sich katalogisieren und manuell taggen. Programme
-werden nicht ausgeführt, Archive nicht automatisch entpackt. Eine fehlende
-Inhaltsauswertung wird als solche gemeldet, statt Inhalte zu erfinden.
-
-**Inhaltssuche** gibt die ausgewählten Dateien ausdrücklich für Extraktion,
-FTS5, lokale Embeddings und den Chat-Kontext frei. Unter **Struktur & Tags**
-können stattdessen bestimmte Ordner einschließlich künftig erfasster Dateien
-freigegeben werden. Ein expliziter Ausschluss einer Datei hat Vorrang vor
-einer Ordnerfreigabe. Widerrufen entfernt ihren Suchindex. Metadaten bleiben
-im Katalog. Die Dateien werden erst nach einem Scan oder expliziten
-Indexauftrag verarbeitet, nicht durch eine Suche.
-
-**Inhalte durchsuchen** durchsucht diese freigegebenen Inhalte. Die
-Wissenssuche und RAG unterscheiden Vault- und Bibliotheksquellen; vorhandene
-PDF-Seitenangaben bleiben erhalten. Ohne Embedding-Modell funktioniert die
-Volltextsuche weiter. Nach Einrichtung eines Modells die betreffende Auswahl
-erneut für Inhaltssuche freigeben, um fehlende Embeddings nachzuholen.
-
-**Obsidian-Notiz** erzeugt nach Vorschau eine neue Markdown-Notiz im
-ausgewählten Vault mit bestätigten Beschreibungen, Tags, Datei-IDs und
-geprüften `file:`-Verweisen. Bestehende Notizen werden nicht überschrieben.
-Originale bleiben außerhalb des Vaults. Dateiverweise sind Momentaufnahmen:
-nach späteren Verschiebungen eine neue Notizvorschau erzeugen; die stabile
-Bibliotheks-ID hilft beim Wiederfinden. Obsidian/Windows müssen das Öffnen
-lokaler bzw. SMB-Dateilinks erlauben. Das gesamte NAS wird niemals zum Vault.
-
-### Speicherorte, Sicherung und Wiederherstellung
-
-| Ort | Inhalt |
-|---|---|
-| PC: `data/profiles/<profil>/app.db` | Führender Katalog, Tags, Struktur, Entwürfe, Aufträge, Vorgangsprotokoll und selektiver Suchindex |
-| NAS-Sicherungsquelle: `.wissens-ki/<profil>/catalog.json` | Zuletzt geprüfte JSON-Metadatensicherung |
-| Derselbe Ordner: `catalog.previous.json` | Vorherige Sicherungsversion |
-| PC: `app.before-library-v1.db`, `app.before-catalog-v1.db` neben `app.db` | Konsistente Datenbankkopien vor den additiven Schemaänderungen |
-
-SQLite gehört auf den PC, nicht auf SMB. Die JSON-Datei ist keine zweite
-Datenbank und kein Mehrgeräte-Sync. Pro Profil nur eine verwaltende
-App-Instanz betreiben. Quellen, Tags und Jobs bleiben profilgebunden;
-ausstehende Aufträge behalten ihr ursprüngliches Profil bei einem Wechsel.
-
-JSON enthält bestätigte Metadaten, stabile Datei-IDs, relative Speicherorte
-und eigene Struktur. Vollständige extrahierte Texte, Embeddings und
-ungeprüfte Vorschläge sind ausgeschlossen. Änderungen werden gebündelt
-gesichert. Erst nach vollständigem Schreiben und erneutem Einlesen wird die
-temporäre Version veröffentlicht. Bei einem NAS-Ausfall bleibt die lokale
-Änderung erhalten und **JSON-Sicherung ausstehend** sichtbar. Der Dienst
-versucht offene Sicherungen erneut; **JSON jetzt sichern** stößt dies auch
-manuell an. Der Verwaltungsordner wird bei Scans ausgeschlossen.
-
-Zum Wiederherstellen im **gleichen Profil** die Quellen registrieren und
-erfassen, dann **Quellen & Sicherung → Wiederherstellen → Sicherung lesen**.
-Alte Quellen den aktuell registrierten Orten zuordnen, Vorschau prüfen und
-erst dann übernehmen. Optional steht die vorherige JSON-Version bereit.
-Nicht zuordenbare Dateien und vorhandene Struktureinträge werden nicht
-überschrieben. Stabile IDs bleiben bei eindeutiger Zuordnung erhalten.
-Suchfreigaben müssen nach der Wiederherstellung erneut erteilt werden.
-Bei Verlust der ganzen App zuerst die Profilkonfiguration aus dem lokalen
-ZIP-Backup zurückholen, damit die ursprüngliche Profil-ID erhalten bleibt.
-
-Manuell verschobene Dateien werden nicht heimlich zusammengeführt:
-Quellen neu erfassen, beim alten fehlenden Eintrag **Verschobene Datei
-zuordnen** öffnen und die ID des neu erfassten Eintrags angeben. Die Vorschau
-zeigt die Zuordnung; vorhandene SHA-256-Werte werden geprüft. Ohne einen
-früheren Hash ist die Identität nicht beweisbar und muss vom Nutzer anhand
-der Dateien bestätigt werden. Gleiche Namen in verschiedenen Quellen und
-identische Kopien bleiben ansonsten getrennte Einträge. **Duplikate prüfen**
-berechnet Hashes nur für die ausgewählten Dateien und löscht nichts.
-
-**Die Metadatensicherung ersetzt kein Backup der NAS-Originaldateien.**
-Auch das vorhandene App-ZIP-Backup umfasst Vault, Profil und Datenbank,
-aber nicht sämtliche Bibliotheksquellen. NAS-Originale separat sichern.
-
-### Unterbrechungen und Sicherheit
-
-Unter **Aufträge** lassen sich Arbeiten pausieren, fortsetzen und Fehler
-einsehen. Die Warteschlange liegt dauerhaft in SQLite. Beim Neustart
-werden unterbrochene laufende Aufträge pausiert angeboten; wartende,
-bereits beauftragte Arbeiten können anlaufen. Scans beginnen erneut,
-mehrteilige Analyse-/Hashaufträge setzen am gespeicherten Eintrag fort.
-Analyse pausiert spätestens zwischen Dateien bzw. nach dem laufenden
-Modell-/Parseraufruf, Kopieren an Blockgrenzen. Ein Windows-SMB-Aufruf kann
-bis zum Betriebssystem-Timeout blockieren. Navigation und Chat bleiben
-unabhängig bedienbar.
-
-Nur registrierte Wurzeln sind zugänglich. Relative Pfade werden gegen
-Traversal, Laufwerkswechsel, NTFS-Datenströme, Symlinks und Junctions geprüft.
-Der ausgewählte Vault ist vom Bibliothekszugriff ausgeschlossen. Die API
-verlangt Profil-, Datei- und Revisionsbezug. Chatwerkzeuge erhalten keine
-Möglichkeit, Bibliotheksfreigaben zu erteilen.
-
-Dateiaktionen prüfen Quelle, Ziel, Freigaben und Revision erneut. Kopieren
-schreibt gestreamt in eine eigene `.lka-*.partial`-Datei, prüft SHA-256 und
-veröffentlicht ohne Überschreiben. Verschieben entfernt die Quelle erst
-nach erfolgreicher Zielprüfung und erneuter Prüfung der Quelle. Das
-Vorgangsprotokoll hält Zwischenstände fest. Bei Konflikten stoppen; unter
-**Aufträge → Details** prüfen und erst nach Klärung fortsetzen. Geschützte
-Zwischendateien nicht eigenständig verschieben oder verändern. Bereits
-veröffentlichte Kopien können bei einem Fehler neben dem Original bleiben.
-
-Unter **Prüfen → Angewendet** können unveränderte Metadatenänderungen
-zurückgenommen werden. Abgeschlossene Verschiebungen/Umbenennungen erzeugen
-für das Rückgängigmachen eine neue Vorschau. Belegte ursprüngliche Ziele
-oder später veränderte Dateien verhindern die Rücknahme. Kopien werden
-nicht durch eine automatische Löschfunktion zurückgenommen. Eine nicht
-erreichbare NAS-Quelle behält ihren Katalog; sie gilt nicht als leer.
-
-### GitHub-Bausteine und vollständig lokaler Betrieb
-
-| Projekt | Verwendung in dieser App |
-|---|---|
-| [TagSpaces](https://github.com/tagspaces/tagspaces) | Bedienvorbild; kein eingebetteter Code, keine Abhängigkeit oder verpflichtende Formatkompatibilität |
-| [Watchdog](https://github.com/gorakhargosh/watchdog) | Windows-Dateiüberwachung; NAS-Quellen und UNC-Wurzeln verwenden `PollingObserver` (standardmäßig 300 Sekunden) |
-| [sqlite-vec](https://github.com/asg017/sqlite-vec) | Auf **0.1.9** fixierter lokaler Vektorindex, ergänzt durch SQLite FTS5; Windows-DLL in der EXE enthalten |
-| [Docling](https://github.com/docling-project/docling) | Optionales separates Analysepaket **2.123.1**, EasyOCR **1.7.2**, ohne Laufzeit-Download |
-| [Ollama Structured Outputs](https://docs.ollama.com/capabilities/structured-outputs) | JSON-Schema für KI-Vorschläge plus serverseitige Pydantic-Prüfung; keine Tool-Ausführung im Klassifikationsaufruf |
-
-Tags und Struktur hängen nicht von sqlite-vec ab. Falls die Erweiterung
-fehlt, bleiben Katalog und Volltextsuche verfügbar. Vektoren sind
-wiederherstellbarer Cache; nach zwischenzeitlichem Betrieb ohne Erweiterung
-werden die Vektortabellen aus den lokal gespeicherten Embeddings neu aufgebaut.
-
-Ohne Docling bleiben die vorhandenen Text-, DOCX- und PDF-Parser verfügbar.
-Einfache Textdateien werden bis 5 MiB verarbeitet. KI-Vorschläge erhalten
-maximal 32.000 Zeichen mit sichtbarem Kürzungshinweis. Für komplexe PDFs,
-OCR, XLSX, PPTX und weitere unterstützte Dokumentformate ist Docling optional.
-Wenn eingerichtet, übernimmt es auch PDF/DOCX. Der getrennte Worker ist
-auf 200 MiB, 300 Seiten und 180 Sekunden je Dokument begrenzt. Nicht
-unterstützte bzw. zu große Dateien bleiben manuell verwaltbar.
-
-Docling wird **nicht** beim normalen Start installiert. Nur bewusst ausführen
-(dieser Einrichtungsschritt benötigt Internet und zusätzlichen Speicher):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\setup-docling.ps1
-# Bei Verwendung der EXE: Pfad zu separat installiertem Python 3.12 angeben
-powershell -ExecutionPolicy Bypass -File .\setup-docling.ps1 -Python 'C:\Python312\python.exe'
-```
-
-Das Skript erstellt `.venv-docling`, installiert `requirements-docling.txt`
-und lädt Layout-, Tabellen- und deutsche/englische OCR-Modelle nach
-`data/models/docling`. Unter **Docling einrichten** die ausgegebenen Python-
-und Modellpfade eintragen. Mit `-WithoutModels` lassen sich nur die Pakete
-einrichten und bereits vorhandene Modelle anschließend manuell zuordnen.
-Die normale EXE bleibt ohne dieses Paket nutzbar. Fehlende Modelle führen
-im Betrieb zu einem Fehler, niemals zu einem automatischen Download.
-
-Der Worker verwendet ausschließlich lokale Dateien und Modelle, deaktiviert
-Remote-Services sowie OCR-Downloads und blockiert Python-Netzwerkverbindungen.
-Das folgt den [Docling-Hinweisen zum Offlinebetrieb](https://docling-project.github.io/docling/usage/advanced_options/).
-Für zusätzliche Absicherung kann die getrennte Python-Umgebung per
-Windows-Firewall vom Internet ausgeschlossen werden. App und Ollama bleiben
-auf dem PC, nur SMB-Verkehr geht zum NAS. Keine Telemetrie, CDN-Schriften
-oder Cloud-Analyse. Ersteinrichtung von Python-Paketen und ausdrücklich
-gestartete Modell-Downloads sind von diesem Offlinebetrieb zu unterscheiden.
-
-### Prüfstand und Grenzen
-
-Das [Prüfprotokoll](docs/NAS-VALIDIERUNG.md) dokumentiert Testumfang,
-Windows-Paketprüfung und die separat am Zielgerät zu prüfenden Punkte.
-
-Die automatisierten Tests prüfen read-only Scans/Analysen, persistente
-Entwürfe, Profiltrennung, sichere Pfade, Zielkonflikte, Quellenänderungen,
-Wiederaufnahme nach Veröffentlichung, Rücknahme, JSON-Wiederherstellung,
-100.000 paginierte Katalogeinträge und Treffer hinter der früheren
-20.000-Abschnittsgrenze. Bestehende Chat-, Anhang-, Vault- und Backup-Tests
-bleiben Teil derselben Suite:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-KI-Antworten werden in den Sicherheitstests simuliert; die Qualität eines
-konkreten Ollama-Modells ist damit nicht bewertet. Bei einem Update einer
-vorhandenen Python-Installation neue Abhängigkeiten einmal ausdrücklich mit
-`.\.venv\Scripts\python.exe -m pip install -r requirements.txt` installieren.
-Der normale Start lädt fehlende Pakete oder Modelle nicht nach.
-
-Die UI wird mit isolierten PC-/NAS-Testordnern geprüft. Vor produktiven
-Verschiebungen auf einem konkreten UGREEN-Gerät zuerst eine eigene
-Testfreigabe verwenden: Scan und Tagging, Kopie, NAS-Trennung während einer
-Kopie, erneute Verbindung/Fortsetzen, Zielkonflikt und Rücknahme einer
-Verschiebung durchspielen. Echte SMB-Ausfälle, Gerätegeschwindigkeit und
-Docling mit heruntergeladenen Modellen müssen auf dem Zielsystem separat
-geprüft werden. Der 100.000-Einträge-Test misst die lokale Katalogabfrage,
-nicht den Durchsatz eines NAS-Vollscans. Die App ist kein Schutz gegen
-gleichzeitige absichtliche Dateimanipulation durch andere Programme.
 
 ## Vorlagen
 
@@ -610,13 +358,16 @@ powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
 
 Das Skript installiert nur die Build-Abhängigkeit aus
 `requirements-build.txt` und erzeugt `dist/Lokale-Wissens-KI.exe` sowie die
-identische Weitergabekopie `dist/KnowHow Tool v1.0.exe`. Liegt eine dieser
+identische Kopie `dist/KnowHow Tool v1.1.exe`. Das Release-Archiv
+`dist/KnowHow-Tool-v1.1-Windows.zip` enthält diese EXE, Dokumentation und
+Lizenzhinweise; persönliche Daten werden nicht eingepackt. `SHA256SUMS.txt`
+enthält die Prüfsummen. Liegt eine dieser
 EXE dort innerhalb dieses Projektordners, verwendet sie automatisch das bereits
 vorhandene `data/` des Projekts und damit dieselben Profile, Chats und
 Einstellungen wie `start.bat`. Wird die EXE an einen anderen Ort kopiert, legt
 sie ihre beschreibbaren `data/`-Dateien weiterhin portabel neben sich ab.
-Frontend und Standardvorlagen sind eingebettet. Das Build-Skript legt README und optionale
-Docling-Einrichtung neben die EXE. Ollama und das gewählte Modell bleiben weiterhin lokale
+Frontend und Standardvorlagen sind eingebettet. Das Build-Skript legt Dokumentation
+und Lizenzhinweise neben die EXE. Ollama und das gewählte Modell bleiben weiterhin lokale
 Voraussetzungen.
 
 `Lokale-Wissens-KI.exe --self-test "C:\Temp\wissens-ki-test.json"` prüft
@@ -746,8 +497,7 @@ Standardmäßig verlässt nichts diesen Rechner.
   abgewiesen. Das schließt DNS-Rebinding aus, bei dem eine Angreiferseite auf
   `127.0.0.1` zeigt und dem Browser dadurch als gleicher Ursprung gilt.
 - **Ursprungs-Prüfung**: Jeder schreibende Zugriff, der von einer anderen Seite
-  ausgelöst wurde, wird abgewiesen (CSRF) — für alle Bereiche, nicht nur die
-  NAS-Bibliothek.
+  ausgelöst wurde, wird abgewiesen (CSRF) — für alle Bereiche.
 - Die Oberfläche läuft in einem eigenen Fenster statt im Systembrowser: keine
   Tabs, keine Erweiterungen, keine fremden Seiten in derselben Umgebung.
 - Abgewiesene Zugriffe stehen mit Grund in `data/logs/app.log`.
@@ -764,14 +514,11 @@ Standardmäßig verlässt nichts diesen Rechner.
 - Der HTTP-Client ignoriert Proxy-Umgebungsvariablen (`trust_env=False`).
 
 Bewusst gestartete Einrichtungsschritte können Internet benötigen: der
-Download eines Ollama-Modells, die Python-Ersteinrichtung und das optionale
-Docling-Setup. Im regulären Betrieb werden Modelle nie automatisch geladen.
+Download eines Ollama-Modells und die Python-Ersteinrichtung. Im regulären Betrieb werden Modelle nie automatisch geladen.
 
 ### Dateizugriff
 
 - Für Vault-Werkzeuge ist nur der konfigurierte Vault-Ordner freigegeben.
-  Die separate NAS-Bibliothek greift ausschließlich auf ihre ausdrücklich
-  registrierten Quellen zu; Dateiaktionen erfordern dort eigene Freigaben.
 - Jeder Pfad wird gegen die Vault-Wurzel geprüft. `..`, absolute Pfade,
   Laufwerksangaben und UNC-Pfade werden abgewiesen.
 - Das Modell kann keine Dateien selbst auswählen, keine Shell-Befehle ausführen
@@ -794,9 +541,8 @@ data/profiles/privat/app.db
 data/profiles/unternehmen/app.db
 ```
 
-Chats, Nachrichten, Anhänge, Wissensindex und Bibliothekskatalog werden nie zwischen
-Profilen geteilt. Ein Profil sieht ausschließlich seinen Vault und seine
-eigenen Bibliotheksquellen. Auf einem Firmenrechner richtest du einfach nur das Unternehmensprofil
+Chats, Nachrichten, Anhänge und Wissensindex werden nie zwischen
+Profilen geteilt. Ein Profil sieht ausschließlich seinen Vault. Auf einem Firmenrechner richtest du einfach nur das Unternehmensprofil
 ein.
 
 Die farbige Kante am linken Bildschirmrand und die Beschriftung neben dem Logo
@@ -841,8 +587,6 @@ Ollama-Obsidian-UI/
 │   ├── knowledge.py       Chunking, lokale Embeddings, hybride RAG-Suche
 │   ├── search_index.py    FTS5 und optionale sqlite-vec-Suche ohne Korpuslimit
 │   ├── knowledge_worker.py Hintergrundabgleich des ausgewählten Vaults
-│   ├── library_*.py       NAS-Katalog, sichere Pfade, Jobs, Ablage, Sicherung
-│   ├── docling_worker.py  isolierte optionale Offline-Analyse
 │   ├── note_templates.py  Vorlagenbibliothek und automatische Auswahl
 │   ├── watcher.py         erkennt externe Änderungen aus Obsidian
 │   ├── backups.py         konsistente lokale ZIP-Backups
@@ -854,7 +598,6 @@ Ollama-Obsidian-UI/
 │       ├── uploads.py     Anhänge hochladen und verwalten
 │       ├── search.py      Volltextsuche
 │       ├── knowledge.py   Wissensindex, Neuaufbau und hybride Suche
-│       ├── library.py     profilgebundene /api/library-Schnittstellen
 │       ├── templates.py   Vorlagen anzeigen und in den Vault kopieren
 │       ├── backups.py     Backups anlegen und herunterladen
 │       └── settings.py    Einstellungen und Profile
@@ -981,3 +724,32 @@ Details zu jedem Fehler stehen in `data/logs/app.log`.
   Lernzettel, eigene Vault-Vorlagen und automatische Auswahl
 - **Phase 6 — Komfort** ✔ Dashboard, Dark Mode, Startverknüpfung, ZIP-Backup und
   reproduzierbarer `.exe`-Build
+
+
+## Unternehmenslaptop einrichten
+
+1. Das V1.1-Release in einen beschreibbaren lokalen Ordner entpacken, etwa
+   `%LOCALAPPDATA%/KnowHow-Tool`. Python ist für die EXE nicht erforderlich.
+2. Ollama und die Modelle `qwen3.5:9b` und `nomic-embed-text` vor dem
+   Offline-Betrieb bereitstellen. Die EXE enthält keine Modelle.
+3. Ein Unternehmensprofil mit einem eigenen lokalen Wissensordner anlegen.
+   Offline-Modus eingeschaltet lassen.
+4. Unter **Wissen erweitern** Informationen eingeben oder Bilder/Dateien
+   anhängen und beispielsweise „Erstelle daraus eine Wissensnotiz“ senden.
+   Bild- und Scaninhalte werden über das lokale Vision-Modell ausgewertet;
+   für spätere Fragen müssen ihre Erkenntnisse als Textnotiz gespeichert sein.
+5. Unter **Wissen fragen** eine konkrete Frage stellen und die verlinkten
+   Quellen prüfen. Neue/geänderte Textdokumente werden vor der Frage indiziert.
+6. Unter Einstellungen ein lokales Backup erstellen.
+
+V1.1 entfernt die separate NAS-Bibliothek einschließlich ihrer Hintergrundjobs
+und Einrichtung. Bestehende Vaults, Chats, Uploads und Datenbanken bleiben
+erhalten; alte Katalogdaten werden nicht mehr abgefragt. Hardwareleistung,
+Modellqualität und die Ausführungsrichtlinien des Firmenrechners bestimmen die
+tatsächliche Nutzbarkeit. KI-Antworten können Fehler enthalten.
+
+## Lizenz
+
+Copyright © 2026 mRbRaIn0. Siehe [LICENSE](LICENSE).
+Drittanbieter-Komponenten behalten ihre eigenen Lizenzen; siehe
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).

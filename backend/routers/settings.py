@@ -48,15 +48,6 @@ async def update_profile(profile_id: str, request: ProfilePatch) -> Dict[str, An
                                       "kind": "no_vault"})
         if not candidate.is_dir():
             raise HTTPException(400, {"message": f"Kein Ordner: {candidate}", "kind": "no_vault"})
-        existing_profile = store.get_profile(profile_id)
-        if existing_profile:
-            database = registry.get(profile_id, existing_profile.db_path)
-            if database.get_meta("library_schema") == "1":
-                from ..library_paths import under
-                for source in database.query("SELECT root FROM library_sources"):
-                    if under(Path(source["root"]), candidate):
-                        raise HTTPException(400, {"message": "Eine ganze Bibliotheksquelle darf nicht zum Vault werden. "
-                                                "Bitte einen eigenen Wissensordner wählen.", "kind": "vault"})
         vault_patch["path"] = str(candidate.resolve())
         patch["vault"] = vault_patch
         try:

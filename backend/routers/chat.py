@@ -367,7 +367,7 @@ async def send_message(chat_id: str, request: MessageRequest) -> StreamingRespon
 
         rag_result: Dict[str, Any] = {}
         use_knowledge = question_mode or request.use_rag
-        if (root is not None or profile.library.enabled) and use_knowledge \
+        if root is not None and use_knowledge \
                 and len(request.content.strip()) >= 2:
             yield _sse({"type": "knowledge_progress", "message": "Freigegebenes Wissen wird durchsucht …"})
             try:
@@ -375,7 +375,7 @@ async def send_message(chat_id: str, request: MessageRequest) -> StreamingRespon
                     root, database, request.content, client,
                     profile.ollama.embed_model, profile.ai.rag_top_k,
                     excluded_dirs=(profile.vault.templates_dir,),
-                    refresh=False, include_library=profile.library.enabled,
+                    refresh=question_mode,
                 )
                 rag_context = context_for_prompt(rag_result)
                 if rag_context:
@@ -1092,7 +1092,9 @@ def _question_system_prompt(user_prompt: str) -> str:
         "DIES IST DER LESECHAT 'WISSEN FRAGEN'. Beantworte Fragen direkt und "
         "hilfreich. Nutze die beigefügten Auszüge aus der lokalen Wissensbasis "
         "vorrangig, wenn sie relevant sind, und zitiere sie mit den angegebenen "
-        "WikiLinks beziehungsweise NAS-Pfaden. Du darfst fehlendes Wissen mit "
+        "WikiLinks. Nenne Seitenzahlen nur, wenn sie ausdrücklich an einer "
+        "PDF-Quelle stehen; für Markdown und DOCX keine Seitenzahlen erfinden. "
+        "Du darfst fehlendes Wissen mit "
         "deinem allgemeinen Modellwissen ergänzen, musst aber klar kenntlich "
         "machen, was nicht aus der lokalen Wissensbasis stammt. Wenn lokale "
         "Quellen und allgemeines Wissen einander widersprechen, benenne den "

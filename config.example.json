@@ -13,7 +13,6 @@
     {
       "id": "privat",
       "name": "Privat",
-      "library": { "enabled": false, "poll_seconds": 300, "docling_python": "", "docling_models": "" },
       "vault": {
         "path": "D:\\AI-Wissen",
         "attachments_dir": "90 Anhänge",
@@ -40,7 +39,6 @@
     {
       "id": "unternehmen",
       "name": "Unternehmen",
-      "library": { "enabled": false, "poll_seconds": 300, "docling_python": "", "docling_models": "" },
       "vault": {
         "path": "C:\\Obsidian-Unternehmen",
         "attachments_dir": "90 Anhänge",

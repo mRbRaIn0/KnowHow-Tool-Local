@@ -58,13 +58,6 @@ async def search(q: str = "", limit: int = 40) -> Dict[str, Any]:
             "created_at": message["created_at"],
         })
 
-    if profile.library.enabled:
-        from ..library_store import LibraryStore
-        library = LibraryStore(profile.model_copy(deep=True), database)
-        catalog_hits = await asyncio.to_thread(library.listing, q=term, limit=limit)
-        groups["library"] = [{**item, "snippet": item["description"], "kind": "library"}
-                             for item in catalog_hits["items"]]
-
     total = sum(len(items) for items in groups.values())
     return {"query": term, "groups": groups, "total": total}
 

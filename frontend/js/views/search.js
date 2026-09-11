@@ -10,7 +10,6 @@ const GROUPS = [
   ['images', 'Bilder', 'image'],
   ['folders', 'Ordner', 'folder-open'],
   ['chats', 'Chats', 'chat'],
-  ['library', 'NAS-Bibliothek', 'files'],
 ];
 let generation = 0;
 export function unmount() { generation++; }
@@ -83,12 +82,6 @@ function render(host, data, contextHost) {
 }
 
 function resultRow(group, item, iconName, query) {
-  if (group === 'library') {
-    return h('button', { class: 'list__item', onclick: () => navigate('/library?item=' + encodeURIComponent(item.id)) },
-      icon('files'), h('span', { class: 'list__main' },
-        h('span', { class: 'list__title', text: item.name }),
-        h('span', { class: 'list__sub', text: item.source_name + ' / ' + item.path + ' · ' + item.tags.join(', ') })));
-  }
   if (group === 'chats') {
     return h('button', {
       class: 'list__item', onclick: () => navigate(`/chat/${item.chat_id}`),

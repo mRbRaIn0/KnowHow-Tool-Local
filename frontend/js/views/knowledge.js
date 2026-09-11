@@ -103,9 +103,9 @@ async function search(query) {
     }
     const resultRows = items.map((item) => h('button', {
         class: 'list__item',
-        onclick: () => navigate(item.source === 'library' ? '/library?item=' + encodeURIComponent(item.item_id) : '/files?path=' + encodeURIComponent(item.path)),
+        onclick: () => navigate('/files?path=' + encodeURIComponent(item.path)),
       }, icon('note'), h('span', { class: 'list__main' },
-        h('span', { class: 'list__title', text: (item.source === 'library' ? 'NAS · ' : 'Vault · ') + item.path }),
+        h('span', { class: 'list__title', text: 'Vault · ' + item.path }),
         h('span', { class: 'list__sub', text: `${item.page ? `Seite ${item.page} · ` : ''}${item.snippet}` })),
       h('span', { class: 'chip', text: `${Math.round(item.score * 100)} %` })));
 
