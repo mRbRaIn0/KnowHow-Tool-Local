@@ -1,0 +1,66 @@
+{
+  "version": 2,
+  "active_profile": "privat",
+  "ui": {
+    "theme": "system"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "open_browser": true
+  },
+  "profiles": [
+    {
+      "id": "privat",
+      "name": "Privat",
+      "vault": {
+        "path": "C:\\Vault",
+        "attachments_dir": "90 Anhänge",
+        "templates_dir": "00 Templates"
+      },
+      "ollama": {
+        "base_url": "http://127.0.0.1:11434",
+        "chat_model": "qwen3.5:9b",
+        "embed_model": "nomic-embed-text"
+      },
+      "ai": {
+        "temperature": 0.7,
+        "num_ctx": 8192,
+        "rag_top_k": 6,
+        "thinking": true,
+        "system_prompt": "Du bist ein lokaler Obsidian-Wissensarchitekt und Datenversteher. Verdichte Informationen zu vollständigen, verknüpften und direkt nutzbaren Wissensnotizen. Antworte standardmäßig auf Deutsch."
+      },
+      "privacy": {
+        "offline_mode": true,
+        "block_external_urls": true,
+        "telemetry": false
+      }
+    },
+    {
+      "id": "unternehmen",
+      "name": "Unternehmen",
+      "vault": {
+        "path": "C:\\Obsidian-Unternehmen",
+        "attachments_dir": "90 Anhänge",
+        "templates_dir": "00 Templates"
+      },
+      "ollama": {
+        "base_url": "http://127.0.0.1:11434",
+        "chat_model": "qwen3.5:9b",
+        "embed_model": "nomic-embed-text"
+      },
+      "ai": {
+        "temperature": 0.4,
+        "num_ctx": 8192,
+        "rag_top_k": 6,
+        "thinking": true,
+        "system_prompt": "Du bist ein lokaler Obsidian-Wissensarchitekt für Unternehmensdaten. Prüfe Zusammenhänge, erzeuge vollständige Dokumentation und verknüpfe relevantes Wissen. Antworte sachlich auf Deutsch."
+      },
+      "privacy": {
+        "offline_mode": true,
+        "block_external_urls": true,
+        "telemetry": false
+      }
+    }
+  ]
+}
