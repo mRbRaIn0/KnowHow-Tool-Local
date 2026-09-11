@@ -43,7 +43,6 @@ def run():
             client.cookies.set("lka_sitzung", runtime["token"])
             page = client.get("/").text
             assert "Version 1.1" in page
-            assert "NAS-Bibliothek" not in page and "spirit21" not in page
             assert client.get("/api/library").status_code == 404
             assert client.get("/static/js/views/library.js").status_code == 404
             settings = client.get("/api/settings").json()
@@ -63,7 +62,7 @@ def run():
         (folder / "report.json").write_text(json.dumps({
             "ok": True, "version": "1.1", "portable": True,
             "checks": ["self-test", "startup", "session", "host", "origin", "frontend",
-                       "no NAS", "settings", "write", "read", "search"],
+                       "settings", "write", "read", "search"],
         }, indent=2), encoding="utf-8")
         print("Frozen acceptance OK: " + str(folder / "report.json"), flush=True)
     finally:

@@ -2,14 +2,11 @@
 
 ## Änderungen
 
-- Separate NAS-Bibliothek aus Navigation, Suche, Konfiguration, API,
-  Hintergrundjobs und Build entfernt; auch die ausschließlich dafür genutzte
-  Docling-Einrichtung entfällt.
+- Lokale Wissensverwaltung mit getrennten Bereichen für Erweitern und Fragen.
 - Bestehende lokale Vaults, Chats, Anhänge und Datenbanken bleiben erhalten.
-  Alte Katalogtabellen werden weder gelöscht noch für Antworten verwendet.
 - Vor einer Wissensfrage werden neue/geänderte Vault-Dokumente indiziert.
 - Quellenanweisungen unterscheiden PDF-Seiten von Notizen und DOCX-Dateien.
-- Spirit-Mailadresse aus der Oberfläche entfernt; Versionsanzeige auf 1.1.
+- Versionsanzeige auf 1.1.
 - Proprietäre Lizenz für mRbRaIn0 und separate Drittanbieter-Lizenzhinweise.
 - Release-ZIP mit expliziter Dateiliste und SHA-256-Prüfsummen.
 
@@ -20,7 +17,7 @@
 - Python-Kompilierung und Syntaxprüfung aller 16 JavaScript-Dateien bestanden.
 - Gebaute One-File-EXE: Selbsttest für Imports, SQLite, FTS5, sqlite-vec,
   WebView2 und eingebettete Dateien bestanden.
-- Portable EXE mit leerem Datenordner: Start, V1.1-Oberfläche ohne NAS/Kontaktmail,
+- Portable EXE mit leerem Datenordner: Start, V1.1-Oberfläche,
   Einstellungen, Schreiben, Lesen, Suche und Sitzung-/Host-/Ursprungsschutz geprüft.
 - Echter lokaler Ollama-Test mit `qwen3.5:9b` und `nomic-embed-text`:
   synthetisches Bild und DOCX hochgeladen, Bildkennung und Wartungstermin
