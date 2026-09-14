@@ -35,3 +35,16 @@ posted.handlers.onEvent({ type: 'start', model: 'qwen3.5:9b', thinking: false, m
 assert.equal(run.model, 'qwen3.5:9b');
 assert.equal(run.thinkingEnabled, false);
 console.log('PASS: stale status ignored; per-message selection captured and server state retained.');
+let confirmStop;
+api.post = (url) => {
+  assert.equal(url, '/api/chats/test/stop');
+  return new Promise(resolve => { confirmStop = resolve; });
+};
+const stopping = stream.namespace.stop('test');
+assert.equal(stream.namespace.isRunning('test'), true);
+posted.handlers.onDone();
+assert.equal(stream.namespace.isRunning('test'), true);
+confirmStop({ stopped: true });
+assert.equal(await stopping, true);
+assert.equal(stream.namespace.isRunning('test'), false);
+console.log('PASS: stop waits for backend confirmation before marking the run stopped.');

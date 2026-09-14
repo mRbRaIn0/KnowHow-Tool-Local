@@ -157,7 +157,7 @@ function ollamaCard(profile, view) {
       ? h('p', { class: 'field__hint', text: `${models.length} Modelle lokal installiert.` })
       : h('p', { class: 'field__hint', text: 'Keine Modelle gefunden — läuft Ollama?' }),
     h('p', { class: 'field__hint', style: 'margin-top:10px',
-      text: 'Stand 11.09.2026: Standard ist qwen3.5:9b (Thinking an) — Allrounder mit Deutsch, Werkzeugen und Bildern, braucht etwa 8 GB. qwen3.5:4b ist schneller, aber schwächer. qwen3-vl:8b eignet sich extra für Fotos und Scans, ersetzt den 9B-Allrounder nicht. nomic-embed-text ist nur die Suche, kein Chat. Chats liegen im Ordner data neben der EXE; bei Updates diesen Ordner behalten.' })));
+      text: 'Stand 11.09.2026: Standard ist qwen3.5:9b (Thinking an) — Allrounder mit Deutsch, Werkzeugen und Bildern, braucht etwa 8 GB. qwen3.5:4b ist schneller, aber schwächer. qwen3-vl:8b eignet sich extra für Fotos und Scans, ersetzt den 9B-Allrounder nicht. nomic-embed-text ist nur die Suche, kein Chat. Chats liegen im Ordner data neben der EXE; bei Updates diesen Ordner behalten.' }));
 }
 
 function modelSelect(value, onChange, allowEmpty = false) {

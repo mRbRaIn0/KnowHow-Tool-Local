@@ -4,7 +4,7 @@
 // soll die Antwort nicht abbrechen und seinen angefangenen Text nicht
 // verlieren. Die Ansicht liest hier nur den aktuellen Stand ab.
 
-import { streamPost } from './api.js';
+import { api, streamPost } from './api.js';
 import { emit } from './store.js';
 
 const runs = new Map();    // chatId -> laufende Antwort
@@ -86,12 +86,13 @@ export function send(chatId, content, selection = {}) {
       if (event.type === 'done' || event.type === 'error') finish(chatId);
     },
     onError: (error) => {
+      if (run.stopping) return;
       run.error = error.message;
       emit('chat:event', { chatId, event: { type: 'error', message: error.message, kind: error.kind }, run });
       finish(chatId);
     },
     onDone: () => {
-      if (runs.get(chatId) === run) {
+      if (runs.get(chatId) === run && !run.stopping) {
         emit('chat:event', { chatId, run, event: { type: 'error', message: 'Die Verbindung endete ohne Abschluss. Gespeicherte Arbeitsnotizen bleiben im Chat verfügbar.' } });
         finish(chatId);
       }
@@ -102,13 +103,24 @@ export function send(chatId, content, selection = {}) {
 }
 
 /** Antwort abbrechen. Der bereits erzeugte Text bleibt gespeichert. */
-export function stop(chatId) {
+export async function stop(chatId) {
   const run = runs.get(chatId);
-  if (!run) return;
-  run.abort?.();
-  run.content += '\n\nAntwort unterbrochen. Bereits gespeicherte Arbeitsnotizen bleiben erhalten. Du kannst im selben Chat fortsetzen.';
-  emit('chat:event', { chatId, event: { type: 'stopped' }, run });
-  finish(chatId);
+  if (!run || run.stopping) return false;
+  run.stopping = true;
+  emit('chat:event', { chatId, event: { type: 'stopping' }, run });
+  try {
+    const result = await api.post(`/api/chats/${chatId}/stop`, {});
+    if (!result.stopped) throw new Error('Der Server hat den Stopp noch nicht bestätigt.');
+    run.abort?.();
+    run.content += '\n\nAntwort gestoppt. Gespeicherte Arbeitsnotizen bleiben erhalten. Die Hintergrundindizierung ist bis zum nächsten App-Start pausiert; manuelles Neuindizieren bleibt möglich.';
+    emit('chat:event', { chatId, event: { type: 'stopped' }, run });
+    finish(chatId);
+    return true;
+  } catch (error) {
+    run.stopping = false;
+    emit('chat:event', { chatId, event: { type: 'stop_failed', message: error.message }, run });
+    return false;
+  }
 }
 
 function finish(chatId) {

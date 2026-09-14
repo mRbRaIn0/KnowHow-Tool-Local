@@ -6,6 +6,8 @@ if (-not (Test-Path -LiteralPath $python)) {
     throw 'Die .venv fehlt. Bitte start.bat einmal ausführen.'
 }
 
+& node --experimental-vm-modules 'tests/frontend_syntax.mjs'
+if ($LASTEXITCODE -ne 0) { throw 'Frontend-Syntaxprüfung fehlgeschlagen; Build abgebrochen.' }
 & $python -m pip install -r requirements-build.txt
 if ($LASTEXITCODE -ne 0) { throw 'Build-Abhängigkeiten konnten nicht installiert werden.' }
 & $python -c "import sqlite3, sqlite_vec; c=sqlite3.connect(':memory:'); c.enable_load_extension(True); sqlite_vec.load(c); print(c.execute('select vec_version()').fetchone()[0])"

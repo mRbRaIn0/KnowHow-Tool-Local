@@ -43,6 +43,11 @@ def run():
             client.cookies.set("lka_sitzung", runtime["token"])
             page = client.get("/").text
             assert "Version 1.2" in page
+            settings_module = client.get("/assets/js/views/settings.js")
+            assert settings_module.status_code == 200
+            subprocess.run(["node", "--input-type=module", "--check"],
+                           input=settings_module.text, text=True, encoding="utf-8", check=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
             assert client.get("/api/library").status_code == 404
             assert client.get("/static/js/views/library.js").status_code == 404
             settings = client.get("/api/settings").json()

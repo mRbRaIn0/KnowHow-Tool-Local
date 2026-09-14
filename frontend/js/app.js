@@ -141,7 +141,7 @@ function renderViewError(viewName, error) {
         h('strong', { text: 'Ansicht konnte nicht geladen werden' }),
         h('p', { text: `Die Seite „${viewName}“ ist fehlgeschlagen: ${message}` }),
         h('div', { class: 'notice__actions' },
-          h('button', { class: 'btn btn--sm btn--primary', onclick: route }, 'Erneut laden'),
+          h('button', { class: 'btn btn--sm btn--primary', onclick: () => location.reload() }, 'Erneut laden'),
           h('button', { class: 'btn btn--sm', onclick: () => navigate('/dashboard') }, 'Zur Übersicht'))))));
   toast('Die Ansicht konnte nicht geladen werden.', 'bad');
 }

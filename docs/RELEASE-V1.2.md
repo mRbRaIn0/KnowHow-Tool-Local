@@ -16,3 +16,12 @@ Stand: 14.09.2026
 86 Python-Tests bestanden, darunter zehn simulierte Screenshot-Auswertungen, zwölf PDF-Seiten mit Abbruch/Wiederaufnahme, echtes PDF-Rendering, eingebettete Word-Bilder, Folgefragen und Abbruch nach einer Dateiaktion. JavaScript-Prüfungen für Auswahlübermittlung und veraltete Statusantworten sowie Syntax- und Diff-Prüfungen bestanden.
 
 Die Qualität und Laufzeit echter Qwen-Auswertungen wurden für V1.2 nicht neu gemessen. Ein neuer EXE-Build und dessen Starttest sind nicht Bestandteil dieses Quellcode-Releases. Das Build-Skript erzeugt künftig die V1.2-Paketnamen.
+
+
+## V1.2-Korrektur: Stopp und Einstellungen
+
+- Überzählige Klammer in den Einstellungen entfernt. „Erneut laden“ lädt die Anwendung vollständig neu, statt einen fehlgeschlagenen Modulimport erneut aus dem Browser-Modulspeicher zu verwenden.
+- Der Build prüft alle Frontend-Dateien ausdrücklich als JavaScript-Module und bricht bei Syntaxfehlern ab.
+- Stopp bricht die zugehörige serverseitige Chat-Anfrage ab und wartet auf deren Abschluss. Ein Verbindungstest bestätigt, dass dabei die laufende Ollama-HTTP-Verbindung geschlossen wird.
+- Stopp pausiert außerdem die automatische Hintergrundindizierung bis zum nächsten App-Start und bricht ihren laufenden Auftrag ab. Manuelles Neuindizieren bleibt verfügbar. Ollama selbst bleibt als Dienst gestartet.
+- Prüfung: bestehende 86 Python-Tests sowie zwei neue Stopp-Tests bestanden; alle Frontend-Module erfolgreich geparst.

@@ -15,7 +15,9 @@ from pydantic import BaseModel, Field
 
 from ..deps import current_db, current_ollama, current_profile
 from ..ollama_client import OllamaError
-from .. import attachments
+from .. import attachments, chat_runs
+from ..knowledge_worker import knowledge_worker
+from contextlib import aclosing
 from ..attachment_analysis import analyse_attachments as _auswerten
 from ..note_templates import list_templates, select_template, template_instruction
 from ..knowledge import context_for_prompt, hybrid_search
@@ -187,8 +189,49 @@ async def delete_message(chat_id: str, message_id: int) -> Dict[str, Any]:
     return {"deleted": True, "id": message_id}
 
 
+@router.post("/{chat_id}/stop")
+async def stop_message(chat_id: str):
+    profile = current_profile()
+    if not current_db(profile).get_chat(chat_id):
+        raise HTTPException(404, "Chat nicht gefunden.")
+    knowledge_worker.pause()
+    stopped = await chat_runs.stop((profile.id, chat_id))
+    if not stopped:
+        raise HTTPException(409, "Stopp ist angefordert; die laufende Anfrage wird noch beendet.")
+    return {"stopped": True, "index_paused": True}
+
+
 @router.post("/{chat_id}/message")
 async def send_message(chat_id: str, request: MessageRequest) -> StreamingResponse:
+    key = (current_profile().id, chat_id)
+    if key in chat_runs.runs:
+        raise HTTPException(409, "Dieser Chat antwortet noch.")
+    run = chat_runs.Run(task=asyncio.current_task())
+    chat_runs.runs[key] = run
+    def finish():
+        if chat_runs.runs.get(key) is run:
+            del chat_runs.runs[key]
+        run.done.set()
+    try:
+        response = await _prepare_message(chat_id, request)
+    except BaseException:
+        finish()
+        raise
+    original = response.body_iterator
+    async def tracked():
+        run.task = asyncio.current_task()
+        try:
+            if not run.cancelled:
+                async with aclosing(original):
+                    async for item in original:
+                        yield item
+        finally:
+            finish()
+    response.body_iterator = tracked()
+    return response
+
+
+async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingResponse:
     """Nimmt eine Nachricht entgegen und streamt die Modellantwort als SSE."""
     profile = current_profile().model_copy(deep=True)
     database = current_db(profile)

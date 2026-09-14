@@ -967,15 +967,16 @@ function setSending(sending) {
   if (!elements.sendButton) return;
   elements.sendButton.style.display = sending ? 'none' : '';
   elements.stopButton.style.display = sending ? '' : 'none';
+  elements.stopButton.disabled = false;
+  elements.stopButton.textContent = 'Stopp';
   // Das Eingabefeld bleibt bedienbar: Die nächste Frage darf schon getippt werden.
   elements.input.placeholder = sending
     ? 'Antwort läuft — du kannst schon weiterschreiben …'
     : `${activeMode.placeholder}  (Enter senden, Umschalt+Enter neue Zeile)`;
 }
 
-function stopCurrent() {
-  stream.stop(state.activeChatId);
-  toast('Antwort abgebrochen.');
+async function stopCurrent() {
+  if (await stream.stop(state.activeChatId)) toast('Antwort gestoppt.');
 }
 
 function send() {
@@ -1016,6 +1017,13 @@ function send() {
 function onStreamEvent({ chatId, event, run }) {
   // Ereignisse anderer Chats laufen im Hintergrund weiter, ohne die Ansicht zu stören.
   if (chatId !== state.activeChatId || !elements.list) return;
+
+  if (event.type === 'stopping' || event.type === 'stop_failed') {
+    elements.stopButton.disabled = event.type === 'stopping';
+    elements.stopButton.textContent = event.type === 'stopping' ? 'Wird gestoppt …' : 'Stopp';
+    if (event.type === 'stop_failed') toast(event.message, 'bad');
+    return;
+  }
 
   if (event.type === 'user_message') {
     elements.list.append(renderMessage(event.message));
