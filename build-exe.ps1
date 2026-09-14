@@ -16,7 +16,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Drittanbieter-Lizenzhinweise konnten nicht ges
 if ($LASTEXITCODE -ne 0) { throw 'Windows-Build fehlgeschlagen.' }
 $hauptExe = Join-Path $PSScriptRoot 'dist\Lokale-Wissens-KI.exe'
 $stableExe = Join-Path $PSScriptRoot 'dist\KnowHow Tool.exe'
-$releaseExe = Join-Path $PSScriptRoot 'dist\KnowHow Tool v1.1.exe'
+$releaseExe = Join-Path $PSScriptRoot 'dist\KnowHow Tool v1.2.exe'
 Copy-Item -LiteralPath $hauptExe -Destination $stableExe -Force
 Copy-Item -LiteralPath $hauptExe -Destination $releaseExe -Force
 foreach ($bundleDoc in @('README.md', 'KI.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt')) {
@@ -25,12 +25,12 @@ foreach ($bundleDoc in @('README.md', 'KI.md', 'LICENSE', 'THIRD_PARTY_NOTICES.t
 $releaseFiles = @($stableExe) + @('README.md', 'KI.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt') | ForEach-Object {
     if ([IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $PSScriptRoot "dist\$_" }
 }
-$releaseZip = Join-Path $PSScriptRoot 'dist\KnowHow-Tool-v1.1-Windows.zip'
+$releaseZip = Join-Path $PSScriptRoot 'dist\KnowHow-Tool-v1.2-Windows.zip'
 Compress-Archive -LiteralPath $releaseFiles -DestinationPath $releaseZip -Force
 $zipArchive = [IO.Compression.ZipFile]::Open($releaseZip, [IO.Compression.ZipArchiveMode]::Update)
 try {
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-        $zipArchive, (Join-Path $PSScriptRoot 'docs\RELEASE-V1.1.md'), 'docs/RELEASE-V1.1.md') | Out-Null
+        $zipArchive, (Join-Path $PSScriptRoot 'docs\RELEASE-V1.2.md'), 'docs/RELEASE-V1.2.md') | Out-Null
 } finally {
     $zipArchive.Dispose()
 }
@@ -40,4 +40,4 @@ Get-FileHash -LiteralPath $stableExe, $releaseZip -Algorithm SHA256 |
 Write-Host ''
 Write-Host 'Fertig: dist\Lokale-Wissens-KI.exe' -ForegroundColor Green
 Write-Host 'Kopie:  dist\KnowHow Tool.exe' -ForegroundColor Green
-Write-Host 'Paket:  dist\KnowHow-Tool-v1.1-Windows.zip' -ForegroundColor Green
+Write-Host 'Paket:  dist\KnowHow-Tool-v1.2-Windows.zip' -ForegroundColor Green

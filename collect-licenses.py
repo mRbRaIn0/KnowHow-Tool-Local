@@ -5,7 +5,7 @@ import sys
 
 root = Path(__file__).resolve().parent
 sections = [
-    "KnowHow Tool V1.1 — third-party notices\n\n"
+    "KnowHow Tool V1.2 — third-party notices\n\n"
     "Third-party components retain their original licenses. The application's\n"
     "proprietary license does not apply to them. This inventory includes the\n"
     "installed build environment as well as runtime dependencies. Models and\n"

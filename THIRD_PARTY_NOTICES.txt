@@ -1,6 +1,6 @@
 
 
-KnowHow Tool V1.1 — third-party notices
+KnowHow Tool V1.2 — third-party notices
 
 Third-party components retain their original licenses. The application's
 proprietary license does not apply to them. This inventory includes the

@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from . import attachments
 from .attachments import AttachmentError
+from .text_cache import read_search_text
 from .vault import (
     DOC_EXT, IGNORED_DIRS, IMAGE_EXT, VaultError, iter_files, kind_for, list_dir,
     read_text_file, safe_join, to_relative, unique_path, write_text_file,
@@ -278,12 +279,15 @@ ATTACHMENT_TOOLS: List[Dict[str, Any]] = [
             "name": "anhang_lesen",
             "description": (
                 "Liest den Textinhalt einer angehängten Datei (Markdown, Text, "
-                "Quellcode, PDF, DOCX, CSV). Für Bilder stattdessen bild_ansehen nutzen."
+                "Quellcode, PDF, DOCX, CSV) sowie gespeicherte Bildauswertungen. "
+                "Liefert naechster_offset: damit alle weiteren Teile abrufen, bis null."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Dateiname des Anhangs."},
+                    "offset": {"type": "integer", "description": "Zeichenposition; zuerst 0, dann naechster_offset."},
+                    "limit": {"type": "integer", "description": "Zeichen pro Teil, maximal 12000."},
                 },
                 "required": ["name"],
             },
@@ -429,7 +433,11 @@ class ToolRunner:
             return {"fehler": "Der Suchbegriff ist zu kurz."}
 
         treffer: List[Dict[str, Any]] = []
-        for path in iter_files(self.root):
+        paths = sorted(iter_files(self.root), key=lambda path: (
+            term not in to_relative(self.root, path).lower(),
+            to_relative(self.root, path).lower(),
+        ))
+        for path in paths:
             if len(treffer) >= MAX_SEARCH_HITS:
                 break
             rel = to_relative(self.root, path)
@@ -437,10 +445,10 @@ class ToolRunner:
             auszug = ""
             if kind_for(path) in ("note", "text", "code"):
                 try:
-                    text = path.read_text(encoding="utf-8", errors="ignore")
+                    text, lower = read_search_text(path)
                 except OSError:
-                    text = ""
-                position = text.lower().find(term)
+                    text, lower = "", ""
+                position = lower.find(term)
                 if position >= 0:
                     start = max(0, position - SNIPPET_RADIUS)
                     auszug = text[start:position + SNIPPET_RADIUS].strip()
@@ -706,13 +714,25 @@ class ToolRunner:
 
     # ------------------------------------------------------------- Anhänge
 
-    def _anhang_lesen(self, name: str = "", **_: Any) -> Dict[str, Any]:
+    def _anhang_lesen(self, name: str = "", offset: int = 0, limit: int = 7000, **_: Any) -> Dict[str, Any]:
         path = attachments.resolve(self.chat_id, name)
-        result = attachments.extract_text(path)
-        result["name"] = path.name
-        return result
+        cache = attachments.load_cache(self.chat_id)
+        if name not in cache:
+            if path.suffix.lower() in IMAGE_EXT:
+                return {"fehler": "Noch keine Bildauswertung gespeichert. Nutze bild_ansehen."}
+            result = attachments.extract_text(path, full=True)
+            if result.get("fehler"):
+                return result
+            attachments.checkpoint(self.chat_id, name, "text", result.get("text", ""),
+                                   complete=path.suffix.lower() != ".pdf")
+        return attachments.cached_excerpt(self.chat_id, name, offset, limit)
 
     async def _bild_ansehen(self, name: str = "", frage: str = "", **_: Any) -> Dict[str, Any]:
+        cached = await asyncio.to_thread(attachments.load_analysis, self.chat_id)
+        if cached["progress"].get(name, {}).get("complete"):
+            result = await asyncio.to_thread(attachments.cached_excerpt, self.chat_id, name)
+            result["beschreibung"] = result.pop("text")
+            return result
         if self.vision is None:
             return {"fehler": "Bildanalyse steht nicht zur Verfügung."}
         path = await asyncio.to_thread(attachments.resolve, self.chat_id, name)
@@ -723,30 +743,14 @@ class ToolRunner:
             "wörtlich wieder und stelle Tabellen als Markdown dar."
         )
 
-        # Gescannte PDFs werden seitenweise gerendert — sonst gäbe es für ein
-        # eingescanntes Blatt keinen Weg, an den Inhalt zu kommen.
-        if endung == ".pdf":
-            seiten = await asyncio.to_thread(attachments.pdf_page_images, path)
-            if not seiten:
-                return {"fehler": f"'{name}' konnte nicht als Bild dargestellt werden."}
-            texte = []
-            for nummer, seite in enumerate(seiten, start=1):
-                beschreibung = await self.vision(prompt, seite)
-                texte.append(f"--- Seite {nummer} ---\n{beschreibung}")
-            gesamt = await asyncio.to_thread(attachments.page_count, path)
-            return {
-                "dokument": path.name,
-                "gelesene_seiten": len(seiten),
-                "seiten_gesamt": gesamt,
-                "beschreibung": "\n\n".join(texte),
-            }
-
-        if endung not in IMAGE_EXT:
+        if endung not in IMAGE_EXT and endung != ".pdf":
             return {"fehler": f"'{name}' ist weder Bild noch PDF. Nutze anhang_lesen."}
-
-        daten = await asyncio.to_thread(attachments.image_base64, path)
-        beschreibung = await self.vision(prompt, daten)
-        return {"bild": path.name, "beschreibung": beschreibung}
+        from .attachment_analysis import analyse_attachments
+        async for _ in analyse_attachments(self.chat_id, [attachments.describe(path)], prompt, self.vision, self):
+            pass
+        result = await asyncio.to_thread(attachments.cached_excerpt, self.chat_id, name)
+        result["beschreibung"] = result.pop("text")
+        return result
 
     def _anhang_in_vault_ablegen(self, name: str = "", zielordner: str = "",
                                  neuer_name: str = "", **_: Any) -> Dict[str, Any]:

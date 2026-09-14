@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):
     log.info("Beendet.")
 
 
-app = FastAPI(title="KnowHow Tool", version="1.1", lifespan=lifespan,
+app = FastAPI(title="KnowHow Tool", version="1.2", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 
 

@@ -12,7 +12,7 @@ import httpx
 
 def run():
     source = Path(sys.argv[1]).resolve()
-    folder = Path.cwd() / ".test-runtime" / ("v11-frozen-" + uuid.uuid4().hex[:8])
+    folder = Path.cwd() / ".test-runtime" / ("v12-frozen-" + uuid.uuid4().hex[:8])
     folder.mkdir(parents=True)
     executable = folder / source.name
     shutil.copy2(source, executable)
@@ -38,11 +38,11 @@ def run():
                     break
                 except httpx.ConnectError:
                     time.sleep(.2)
-            assert health.json()["version"] == "1.1"
+            assert health.json()["version"] == "1.2"
             assert client.get("/api/settings").status_code == 403
             client.cookies.set("lka_sitzung", runtime["token"])
             page = client.get("/").text
-            assert "Version 1.1" in page
+            assert "Version 1.2" in page
             assert client.get("/api/library").status_code == 404
             assert client.get("/static/js/views/library.js").status_code == 404
             settings = client.get("/api/settings").json()
@@ -60,7 +60,7 @@ def run():
             assert client.post("/api/files/write", headers={"Origin": "https://evil.example"},
                                json={"path": "bad.md", "content": "bad"}).status_code == 403
         (folder / "report.json").write_text(json.dumps({
-            "ok": True, "version": "1.1", "portable": True,
+            "ok": True, "version": "1.2", "portable": True,
             "checks": ["self-test", "startup", "session", "host", "origin", "frontend",
                        "settings", "write", "read", "search"],
         }, indent=2), encoding="utf-8")

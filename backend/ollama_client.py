@@ -118,10 +118,7 @@ class OllamaClient:
         """Fähigkeiten eines Modells, im Prozess zwischengespeichert."""
         key = f"{self.base_url}|{model}"
         if key not in _CAPABILITIES:
-            try:
-                _CAPABILITIES[key] = (await self.show(model)).get("capabilities", [])
-            except OllamaError:
-                return []
+            _CAPABILITIES[key] = (await self.show(model)).get("capabilities", [])
         return _CAPABILITIES[key]
 
     async def chat_stream(

@@ -13,6 +13,7 @@ import { markdownOptions, navigate, on, refreshFileIndex, refreshStatus, state, 
 import * as stream from '../chatstream.js';
 
 let elements = {};
+let settingsPending = false;
 let unsubscribe = [];
 let live = null;  // { node, caret, thinkingNode } der gerade laufenden Antwort
 let attachmentState = [];
@@ -112,6 +113,7 @@ export async function mount({ route, el }) {
 
   unsubscribe.push(on('chat:event', onStreamEvent));
   renderContext(data.chat, data.messages.length);
+  unsubscribe.push(on('status', () => renderContext(data.chat, data.messages.length)));
   scrollToEnd();
   if (!run) elements.input.focus();
 }
@@ -126,7 +128,9 @@ function restoreRunning(run) {
   const caret = h('span', { class: 'caret' });
   node._content.append(caret);
   elements.list.append(node);
+  node.querySelector('.msg__who').textContent = `${run.model} · ${run.execution === 'direct' ? 'Direktaktion' : run.thinkingEnabled ? 'Thinking an' : 'Thinking aus'}`;
   live = { node, caret, thinkingNode: node.querySelector('.msg__think') };
+  for (const analysis of Object.values(run.analyses || {})) renderAnalysis(analysis);
   setSending(true);
 }
 
@@ -579,6 +583,7 @@ function renderMessageAttachment(item) {
 }
 
 const STEP_LABELS = {
+  anhang_ausgewertet: ['Arbeitsnotizen gespeichert', 'doc'],
   vault_suchen: ['Vault durchsucht', 'search'],
   notiz_lesen: ['Notiz gelesen', 'note'],
   ordner_auflisten: ['Ordner angesehen', 'folder-open'],
@@ -625,6 +630,19 @@ function renderStep(step, pending = false) {
     ? h('button', { class: classes.join(' '), title: `${oeffnet} öffnen`,
         onclick: () => navigate(`/files?path=${encodeURIComponent(oeffnet)}`) }, ...kinder)
     : h('div', { class: classes.join(' ') }, ...kinder);
+}
+
+function renderAnalysis(event) {
+  if (!live) return;
+  live.analyses ||= new Map();
+  let block = live.analyses.get(event.name);
+  if (!block) {
+    block = h('details', { class: 'msg__think' }, h('summary'), h('pre'));
+    live.node.querySelector('.msg__body').prepend(block);
+    live.analyses.set(event.name, block);
+  }
+  block.querySelector('summary').textContent = `Arbeitsnotizen · ${event.name} · ${event.error ? 'unvollständig' : 'gespeichert'}`;
+  block.querySelector('pre').textContent = [event.text, event.error].filter(Boolean).join('\n\n');
 }
 
 function thinkingBlock(text) {
@@ -775,10 +793,17 @@ function syncComposerMeta(status) {
   const checkbox = elements.thinkToggle;
   const label = elements.thinkLabel;
   if (!select || !checkbox || !label) return;
+  if (settingsPending && select.options.length) return;
   fillModelSelect(select, status);
   const canThink = Boolean(status?.model?.thinking);
-  checkbox.disabled = !canThink;
+  checkbox.disabled = settingsPending || !canThink;
+  if (settingsPending) {
+    select.disabled = true;
+    if (elements.sendButton) elements.sendButton.disabled = true;
+  }
   checkbox.checked = canThink && Boolean(status?.ai?.thinking);
+  label.querySelector('.composer__think-label').textContent = canThink
+    ? (checkbox.checked ? 'Thinking an' : 'Thinking aus') : 'Thinking nicht verfügbar';
   label.classList.toggle('is-disabled', !canThink);
   label.title = canThink
     ? 'Denkprozess des Modells ein- oder ausschalten.'
@@ -787,12 +812,20 @@ function syncComposerMeta(status) {
 
 async function patchProfile(body) {
   const id = state.status?.profile?.id;
-  if (!id) return;
+  if (!id || settingsPending) return;
+  settingsPending = true;
+  elements.modelSelect.disabled = true;
+  elements.thinkToggle.disabled = true;
+  elements.sendButton.disabled = true;
   try {
     await api.updateProfile(id, body);
     await refreshStatus();
   } catch (error) {
     toast(error.message, 'bad');
+  } finally {
+    settingsPending = false;
+    syncComposerMeta(state.status);
+    if (elements.sendButton) elements.sendButton.disabled = false;
   }
 }
 
@@ -946,6 +979,7 @@ function stopCurrent() {
 }
 
 function send() {
+  if (settingsPending) { toast('Modell-Einstellung wird noch gespeichert …'); return; }
   const content = elements.input.value.trim();
   if ((!content && !attachmentState.length) || !state.activeChatId) return;
 
@@ -973,6 +1007,7 @@ function send() {
   stream.send(
     state.activeChatId,
     content || 'Übernimm die angehängten Dateien in den Vault und dokumentiere ihren Inhalt.',
+    { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked },
   );
 }
 
@@ -986,7 +1021,7 @@ function onStreamEvent({ chatId, event, run }) {
     elements.list.append(renderMessage(event.message));
     const node = renderMessage({
       id: null, role: 'assistant', content: '', thinking: '',
-      model: state.status?.model?.name || '', created_at: new Date().toISOString(),
+      model: run.model || '', created_at: new Date().toISOString(),
     });
     elements.list.append(node);
     live = { node, caret: null, thinkingNode: null, progress: null };
@@ -995,6 +1030,7 @@ function onStreamEvent({ chatId, event, run }) {
   }
 
   if (event.type === 'start') {
+    if (live) live.node.querySelector('.msg__who').textContent = `${event.model} · ${event.execution === 'direct' ? 'Direktaktion · kein Modellaufruf' : event.thinking === null ? 'Thinking nicht verfügbar' : event.thinking ? 'Thinking an' : 'Thinking aus'}`;
     if (live?.node) {
       // Der Platzhalter der Anhang-Auswertung wird zur echten Antwort.
       live.caret = h('span', { class: 'caret' });
@@ -1041,7 +1077,8 @@ function onStreamEvent({ chatId, event, run }) {
       live.node._steps.append(live.progress);
     }
     live.progress.querySelector('.step__detail').textContent =
-      `${event.nummer}/${event.gesamt} — ${event.name} wird ausgewertet …`;
+      `${event.nummer}/${event.gesamt} — ${event.name}${event.seite ? ` · Seite ${event.seite}/${event.seiten}` : ''} · ${event.status === 'cached' ? 'aus Arbeitsnotizen übernommen' : event.status === 'saved' ? 'zwischengespeichert' : event.status === 'partial' ? 'unvollständig' : 'wird gelesen …'}`;
+    if (event.text || event.error) renderAnalysis(event);
     scrollToEnd();
     return;
   }
@@ -1050,7 +1087,7 @@ function onStreamEvent({ chatId, event, run }) {
     if (live.progress) {
       live.progress.className = 'step';
       live.progress.querySelector('.step__detail').textContent =
-        `${event.anzahl} Datei(en) ausgewertet`;
+        `${event.anzahl} Datei(en) bearbeitet · ${event.unvollstaendig || 0} unvollständig`;
       live.progress = null;
     }
     return;
@@ -1073,6 +1110,9 @@ function onStreamEvent({ chatId, event, run }) {
   }
 
   if (event.type === 'thinking') {
+    if (run.thinkingEnabled === false) {
+      live.node.querySelector('.msg__who').textContent = `${run.model} · Thinking trotz deaktivierter Einstellung empfangen`;
+    }
     if (!live.thinkingNode) {
       live.thinkingNode = thinkingBlock('');
       live.node.querySelector('.msg__body').prepend(live.thinkingNode);
@@ -1091,7 +1131,7 @@ function onStreamEvent({ chatId, event, run }) {
   }
 
   if (event.type === 'done' || event.type === 'stopped') {
-    live.caret.remove();
+    live.caret?.remove();
     live.node._content.innerHTML = renderMarkdown(run.content, markdownOptions());
     if (run.changedFiles?.length) {
       refreshFileIndex();
@@ -1104,7 +1144,7 @@ function onStreamEvent({ chatId, event, run }) {
   }
 
   if (event.type === 'error') {
-    live.caret.remove();
+    live.caret?.remove();
     live.node.classList.add('msg--error');
     live.node.querySelector('.msg__body')
       .append(h('p', { style: 'color:var(--bad);margin:6px 0 0', text: event.message }));
@@ -1184,11 +1224,11 @@ function renderContext(chat, messageCount = 0) {
         h('dt', { text: 'Erstellt' }), h('dd', { text: fmtDate(chat?.created_at) }),
         h('dt', { text: 'Nachrichten' }), h('dd', { text: String(messageCount) }))),
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Modell' }),
+      h('span', { class: 'label', text: 'Modell · nächste Nachricht' }),
       h('dl', { class: 'ctx-kv' },
         h('dt', { text: 'Name' }), h('dd', { text: status?.model?.name || '–' }),
         h('dt', { text: 'Bilder' }), h('dd', { text: status?.model?.vision ? 'ja' : 'nein' }),
-        h('dt', { text: 'Thinking' }), h('dd', { text: status?.model?.thinking ? 'verfügbar' : 'nein' }))),
+        h('dt', { text: 'Thinking' }), h('dd', { text: status?.model?.thinking ? (status?.ai?.thinking ? 'aktiv' : 'ausgeschaltet') : 'nicht unterstützt' }))),
     h('div', { class: 'ctx-block' },
       h('span', { class: 'label', text: 'Aktionen' }),
       h('div', { class: 'row row--wrap' },

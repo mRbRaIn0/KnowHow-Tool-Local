@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
-from ..config import Profile
+from ..text_cache import read_search_text
 from ..deps import current_db, current_profile
 from ..vault import (
     IGNORED_DIRS, VaultError, kind_for, iter_files, require_root, to_relative,
@@ -116,10 +116,9 @@ def _search_content(path: Path, needle: str) -> tuple[str, int]:
     try:
         if path.stat().st_size > MAX_CONTENT_BYTES:
             return "", 0
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text, lower = read_search_text(path)
     except OSError:
         return "", 0
-    lower = text.lower()
     position = lower.find(needle)
     if position < 0:
         return "", 0

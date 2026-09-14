@@ -602,9 +602,10 @@ Zusätzlich werden alle JavaScript-Dateien mit `node --check` geprüft. Kritisch
 Vault-Abläufe sollen außerdem über die echte API und anschließend unabhängig am
 Dateisystem kontrolliert werden.
 
-Für V1.1 stehen dafür `tests/manual_local_validation.py` (lokales Ollama mit
+Für V1.2 stehen dafür `tests/manual_local_validation.py` (lokales Ollama mit
 synthetischen Bild-/Dokumentdaten) und `tests/manual_frozen_validation.py`
-(portable EXE) bereit. Prüfergebnisse: [Release V1.1](docs/RELEASE-V1.1.md).
+(portable EXE) bereit. Prüfergebnisse: [Release V1.2](docs/RELEASE-V1.2.md),
+vorher [Release V1.1](docs/RELEASE-V1.1.md).
 
 ---
 

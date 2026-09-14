@@ -315,3 +315,20 @@ def note_title(text: str, fallback: str = "Neue Wissensnotiz") -> str:
     if len(value) > 72:
         value = value[:72].rsplit(" ", 1)[0]
     return value or fallback
+
+
+def simple_root_note(prompt: str) -> str | None:
+    """Only a complete, unambiguous create command without content instructions."""
+    match = re.fullmatch(
+        r'\s*(?:bitte\s+)?(?:lege|erstelle)\s+(?:eine?\s+)?(?:test\s+)?'
+        r'["„]([\w -]+(?:\.md)?)["“]\s+(?:(?:md|markdown)[- ]*)?datei\s+'
+        r'(?:an\s+)?(?:im\s+(?:obersten|obersten\s+vault-)\s*ordner|im\s+hauptordner|'
+        r'im\s+vault-root)(?:\s+an)?\s*[.!]?\s*',
+        prompt, re.IGNORECASE,
+    )
+    if not match:
+        return None
+    name = match.group(1).strip()
+    if not name or name.casefold() in {'00 inhalt', '00 inhalt.md'}:
+        return None
+    return name if name.lower().endswith('.md') else name + '.md'

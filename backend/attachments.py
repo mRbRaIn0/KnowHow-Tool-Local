@@ -13,6 +13,8 @@ import logging
 import re
 import shutil
 import time
+import threading
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -34,6 +36,12 @@ UPLOAD_TTL_SECONDS = 7 * 24 * 3600       # Zwischenablage nach einer Woche räum
 
 class AttachmentError(Exception):
     """Fehler beim Umgang mit Anhängen."""
+
+
+class AnalysisIncomplete(AttachmentError):
+    def __init__(self, message: str, partial: str = ""):
+        super().__init__(message)
+        self.partial = partial
 
 
 def safe_filename(name: str) -> str:
@@ -132,7 +140,8 @@ def cleanup_old() -> int:
     grenze = time.time() - UPLOAD_TTL_SECONDS
     for folder in UPLOAD_DIR.iterdir():
         try:
-            if folder.is_dir() and folder.stat().st_mtime < grenze:
+            if (folder.is_dir() and not (folder / CACHE_NAME).exists()
+                    and folder.stat().st_mtime < grenze):
                 shutil.rmtree(folder)
                 entfernt += 1
         except OSError:
@@ -142,38 +151,38 @@ def cleanup_old() -> int:
 
 # ------------------------------------------------------------ Textextraktion
 
-def extract_text(path: Path) -> Dict[str, Any]:
+def extract_text(path: Path, full: bool = False) -> Dict[str, Any]:
     """Holt Text aus einer Datei. Gibt immer ein Ergebnis zurück, nie None."""
     suffix = path.suffix.lower()
     try:
         if suffix == ".pdf":
-            return _extract_pdf(path)
+            return _extract_pdf(path, full)
         if suffix == ".docx":
-            return _extract_docx(path)
+            return _extract_docx(path, full)
         if suffix in IMAGE_EXT:
             return {"text": "", "hinweis": "Bilddatei — mit bild_ansehen betrachten."}
-        return _extract_plain(path)
+        return _extract_plain(path, full)
     except Exception as exc:  # defensiv: eine kaputte Datei darf nichts abbrechen
         log.warning("Extraktion von %s fehlgeschlagen: %s", path.name, exc)
         return {"text": "", "fehler": f"Datei konnte nicht gelesen werden: {exc}"}
 
 
-def _cut(text: str) -> Dict[str, Any]:
-    gekuerzt = len(text) > MAX_EXTRACT_CHARS
-    return {"text": text[:MAX_EXTRACT_CHARS], "gekuerzt": gekuerzt}
+def _cut(text: str, full: bool = False) -> Dict[str, Any]:
+    gekuerzt = not full and len(text) > MAX_EXTRACT_CHARS
+    return {"text": text[:MAX_EXTRACT_CHARS] if gekuerzt else text, "gekuerzt": gekuerzt}
 
 
-def _extract_plain(path: Path) -> Dict[str, Any]:
+def _extract_plain(path: Path, full: bool = False) -> Dict[str, Any]:
     data = path.read_bytes()
     for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
         try:
-            return _cut(data.decode(encoding))
+            return _cut(data.decode(encoding), full)
         except UnicodeDecodeError:
             continue
     return {"text": "", "fehler": "Die Datei enthält keinen lesbaren Text."}
 
 
-def _extract_pdf(path: Path) -> Dict[str, Any]:
+def _extract_pdf(path: Path, full: bool = False) -> Dict[str, Any]:
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))
@@ -196,12 +205,12 @@ def _extract_pdf(path: Path) -> Dict[str, Any]:
                 "dann als Bild ausgewertet."
             ),
         }
-    result = _cut("\n\n".join(seiten))
+    result = _cut("\n\n".join(seiten), full)
     result["seiten"] = len(reader.pages)
     return result
 
 
-def _extract_docx(path: Path) -> Dict[str, Any]:
+def _extract_docx(path: Path, full: bool = False) -> Dict[str, Any]:
     import docx
 
     document = docx.Document(str(path))
@@ -211,7 +220,7 @@ def _extract_docx(path: Path) -> Dict[str, Any]:
             zellen = [c.text.strip() for c in row.cells]
             if any(zellen):
                 teile.append(" | ".join(zellen))
-    return _cut("\n".join(teile))
+    return _cut("\n".join(teile), full)
 
 
 # ------------------------------------------------------------------- Bilder
@@ -272,40 +281,106 @@ def image_base64(path: Path, max_edge: int = VISION_MAX_EDGE) -> str:
 
 
 CACHE_NAME = ".ausgewertet.json"
-CACHE_VERSION = 2
+CACHE_VERSION = 3
+_CACHE_LOCK = threading.RLock()
 
 
 def _cache_path(chat_id: str) -> Path:
     return chat_dir(chat_id) / CACHE_NAME
 
 
-def load_cache(chat_id: str) -> Dict[str, str]:
-    """Bereits ausgewertete Anhänge — damit Folgefragen nichts neu auswerten."""
+def load_analysis(chat_id: str) -> dict:
     try:
-        raw = _cache_path(chat_id).read_text(encoding="utf-8")
-        data = json.loads(raw)
-        if isinstance(data, dict) and data.get("version") == CACHE_VERSION:
-            items = data.get("items")
-            return items if isinstance(items, dict) else {}
-        return {}
-    except (OSError, json.JSONDecodeError, AttachmentError):
-        return {}
+        data = json.loads(_cache_path(chat_id).read_text(encoding="utf-8"))
+        if isinstance(data, dict) and data.get("version") in (2, CACHE_VERSION):
+            return {"items": data.get("items") or {}, "progress": data.get("progress") or {}}
+    except (OSError, ValueError, AttachmentError):
+        pass
+    return {"items": {}, "progress": {}}
+
+
+def load_cache(chat_id: str) -> Dict[str, str]:
+    return load_analysis(chat_id)["items"]
+
+
+def _save_analysis(chat_id: str, data: dict) -> None:
+    target = _cache_path(chat_id)
+    temporary = target.with_suffix(".tmp")
+    data["version"] = CACHE_VERSION
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary.replace(target)
 
 
 def save_cache(chat_id: str, cache: Dict[str, str]) -> None:
+    with _CACHE_LOCK:
+        data = load_analysis(chat_id)
+        data["items"].update(cache)
+        _save_analysis(chat_id, data)
+
+
+def checkpoint(chat_id: str, name: str, part: str = "", text: str = "",
+               complete: bool = False, error: str = "") -> dict:
+    """Commit every extracted unit atomically, including partial PDF progress."""
+    with _CACHE_LOCK:
+        data = load_analysis(chat_id)
+        record = data["progress"].setdefault(name, {"parts": {}, "complete": False})
+        if part:
+            record["parts"].pop(part + ":partial", None)
+            record["parts"][part] = text
+        record.update(complete=complete, error=error)
+        data["items"][name] = "\n\n".join(record["parts"].values())
+        _save_analysis(chat_id, data)
+        return record
+
+
+def cached_excerpt(chat_id: str, name: str, offset: int = 0, limit: int = 7000) -> dict:
+    data = load_analysis(chat_id)
+    text = data["items"].get(name, "")
+    offset = max(0, int(offset))
+    limit = max(500, min(int(limit), 12000))
+    end = min(len(text), offset + limit)
+    status = data["progress"].get(name, {})
+    return {"name": name, "text": text[offset:end], "gesamt_zeichen": len(text),
+            "offset": offset, "naechster_offset": end if end < len(text) else None,
+            "gekuerzt": end < len(text), "vollstaendig": bool(status.get("complete")),
+            "hinweis": status.get("error", ""), "zwischengespeichert": True}
+
+
+def pdf_text_pages(path: Path) -> List[str]:
+    from pypdf import PdfReader
+    return [(page.extract_text() or "").strip() for page in PdfReader(str(path)).pages]
+
+
+def pdf_page_image(path: Path, index: int) -> str:
+    """Render just one page; never allocate all PDF bitmaps at once."""
+    import pypdfium2 as pdfium
+    from PIL import Image
+    document = pdfium.PdfDocument(str(path))
     try:
-        _cache_path(chat_id).write_text(
-            json.dumps({"version": CACHE_VERSION, "items": cache}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    except (OSError, AttachmentError):
-        log.warning("Auswertungs-Zwischenspeicher konnte nicht geschrieben werden.")
+        page = document[index]
+        try:
+            bitmap = page.render(scale=2)
+            try:
+                image = bitmap.to_pil()
+                image.thumbnail((VISION_MAX_EDGE, VISION_MAX_EDGE), Image.Resampling.LANCZOS)
+                buffer = io.BytesIO()
+                image.convert("RGB").save(buffer, format="JPEG", quality=90)
+                return base64.b64encode(buffer.getvalue()).decode("ascii")
+            finally:
+                bitmap.close()
+        finally:
+            page.close()
+    finally:
+        document.close()
 
 
 STATUS_NAME = ".verwendet.json"
 
 # Verwaltungsdateien tauchen nie als Anhang auf.
-INTERNE_DATEIEN = {CACHE_NAME, STATUS_NAME}
+INTERNE_DATEIEN = {CACHE_NAME, STATUS_NAME, ".ausgewertet.tmp"}
 
 
 def _status_path(chat_id: str) -> Path:
@@ -403,3 +478,26 @@ KIND_LABELS = {
     "note": "Markdown", "text": "Textdatei", "code": "Quellcode",
     "doc": "Dokument", "image": "Bild", "other": "Datei",
 }
+
+
+def docx_images(path: Path) -> List[tuple[str, bytes]]:
+    """Embedded Word images, including those without surrounding text."""
+    import zipfile
+    with zipfile.ZipFile(path) as archive:
+        result = []
+        for item in archive.infolist():
+            if item.filename.startswith("word/media/") and not item.is_dir():
+                if item.file_size > MAX_FILE_BYTES:
+                    raise AttachmentError(f"Eingebettetes Bild zu groß: {item.filename}")
+                result.append((item.filename, archive.read(item)))
+        return result
+
+
+def image_bytes_base64(data: bytes) -> str:
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as image:
+        image.load()
+        image.thumbnail((VISION_MAX_EDGE, VISION_MAX_EDGE), Image.Resampling.LANCZOS)
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, format="JPEG", quality=90)
+        return base64.b64encode(buffer.getvalue()).decode("ascii")

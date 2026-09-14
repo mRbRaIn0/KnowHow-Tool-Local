@@ -853,3 +853,9 @@ mark { background: var(--accent-quiet); color: var(--accent); border-radius: 2px
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* Stabile Auswahl oberhalb der Eingabe, auch bei schmalen Fenstern. */
+.composer__inner { flex-wrap: wrap; }
+.composer__side { flex-basis: 100%; justify-content: flex-start; flex-wrap: wrap; }
+.composer__model { width: 220px; max-width: 100%; min-height: 32px; }
+.composer__think { min-height: 32px; }

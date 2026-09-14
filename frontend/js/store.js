@@ -30,11 +30,16 @@ export function emit(event, payload) {
 
 /* ------------------------------------------------------- Status */
 
+let statusTicket = 0;
 export async function refreshStatus() {
+  const ticket = ++statusTicket;
   try {
-    state.status = await api.status();
+    const status = await api.status();
+    if (ticket !== statusTicket) return state.status;
+    state.status = status;
     emit('status', state.status);
   } catch (error) {
+    if (ticket !== statusTicket) return state.status;
     state.status = null;
     emit('status', null);
   }

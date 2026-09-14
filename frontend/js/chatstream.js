@@ -43,7 +43,7 @@ export function runningChatIds() {
  * Schickt eine Nachricht ab und streamt die Antwort.
  * Der Stream läuft weiter, auch wenn die Ansicht gewechselt wird.
  */
-export function send(chatId, content) {
+export function send(chatId, content, selection = {}) {
   if (runs.has(chatId)) return runs.get(chatId);
 
   const run = {
@@ -51,25 +51,30 @@ export function send(chatId, content) {
     content: '',
     thinking: '',
     messageId: null,
-    model: '',
+    model: selection.model || '',
+    thinkingEnabled: selection.thinking,
     userMessage: null,
     steps: [],
     changedFiles: [],
     progress: null,
+    analyses: {},
     error: null,
     abort: null,
   };
   runs.set(chatId, run);
   emit('chat:running', { running: true, chatId });
 
-  run.abort = streamPost(`/api/chats/${chatId}/message`, { content }, {
+  run.abort = streamPost(`/api/chats/${chatId}/message`, { content, ...selection }, {
     onEvent: (event) => {
       if (event.type === 'user_message') run.userMessage = event.message;
-      else if (event.type === 'start') { run.messageId = event.message_id; run.model = event.model; }
+      else if (event.type === 'start') { run.messageId = event.message_id; run.model = event.model; run.thinkingEnabled = event.thinking; run.execution = event.execution; }
       else if (event.type === 'thinking') run.thinking += event.delta;
       else if (event.type === 'content') run.content += event.delta;
       else if (event.type === 'tool_result') run.steps.push(event);
-      else if (event.type === 'attachment_progress') run.progress = event;
+      else if (event.type === 'attachment_progress') {
+        run.progress = event;
+        if (event.text || event.error) run.analyses[event.name] = event;
+      }
       else if (event.type === 'attachments_ready') run.progress = null;
       else if (event.type === 'done') {
         run.content = event.content || run.content;
@@ -85,7 +90,12 @@ export function send(chatId, content) {
       emit('chat:event', { chatId, event: { type: 'error', message: error.message, kind: error.kind }, run });
       finish(chatId);
     },
-    onDone: () => finish(chatId),
+    onDone: () => {
+      if (runs.get(chatId) === run) {
+        emit('chat:event', { chatId, run, event: { type: 'error', message: 'Die Verbindung endete ohne Abschluss. Gespeicherte Arbeitsnotizen bleiben im Chat verfügbar.' } });
+        finish(chatId);
+      }
+    },
   });
 
   return run;
@@ -96,6 +106,7 @@ export function stop(chatId) {
   const run = runs.get(chatId);
   if (!run) return;
   run.abort?.();
+  run.content += '\n\nAntwort unterbrochen. Bereits gespeicherte Arbeitsnotizen bleiben erhalten. Du kannst im selben Chat fortsetzen.';
   emit('chat:event', { chatId, event: { type: 'stopped' }, run });
   finish(chatId);
 }

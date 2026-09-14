@@ -1,4 +1,4 @@
-# KnowHow Tool · V1.1
+# KnowHow Tool · V1.2
 
 Lokale Wissens-KI für Windows von **mRbRaIn0**. Sammle Informationen, Bilder und
 Dokumente in einem eigenen Wissensordner und frage ihre Inhalte mit Quellen ab.
@@ -6,7 +6,7 @@ Die KI läuft über Ollama auf deinem Rechner; Notizen bleiben normale
 Markdown-Dateien, die du auch mit Obsidian bearbeiten kannst.
 
 [Windows-Release](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
-· [KI-Verhalten](KI.md) · [Prüfbericht V1.1](docs/RELEASE-V1.1.md)
+· [KI-Verhalten](KI.md) · [Release V1.2](docs/RELEASE-V1.2.md)
 
 ## Zwei Bereiche für dein Wissen
 
@@ -53,7 +53,7 @@ Weitere Funktionen:
    ein- und ausschalten. Die Einrichtung braucht Internet; der spätere Betrieb kann
    offline erfolgen.
 
-2. **Release entpacken.** Lade `KnowHow-Tool-v1.1-Windows.zip` aus den
+2. **Release entpacken.** Lade `KnowHow-Tool-v1.2-Windows.zip` aus den
    [Releases](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
    und entpacke es in einen beschreibbaren lokalen Ordner, beispielsweise
    `%LOCALAPPDATA%/KnowHow-Tool`. Chats liegen im Ordner `data` **neben** der EXE.
@@ -142,7 +142,7 @@ Uploads, Wissensordner oder Modelle.
 
 ## Aus dem Quellcode starten
 
-Für die Entwicklung benötigst du Python; V1.1 wurde mit Python 3.12 geprüft.
+Für die Entwicklung benötigst du Python; V1.2 wurde mit Python 3.12 geprüft.
 `start.bat` richtet die lokale `.venv` mit den festgelegten Abhängigkeiten ein
 und startet die Anwendung. Alternativ nach der Einrichtung:
 
@@ -168,7 +168,10 @@ Der Build erzeugt `dist/KnowHow Tool.exe`, das Release-ZIP und
 zusammengestellt und mitgeliefert. Für reproduzierbare Ergebnisse eine frische
 Umgebung mit `requirements.txt` und `requirements-build.txt` verwenden.
 
-V1.1 wurde mit automatisierten Tests, einem echten lokalen Bild-/DOCX-Workflow
+V1.2: 86 automatisierte Python-Tests sowie JavaScript-Prüfungen bestanden.
+Details und Grenzen stehen in den [Release-Notizen](docs/RELEASE-V1.2.md).
+
+Die vorherige V1.1 wurde mit automatisierten Tests, einem echten lokalen Bild-/DOCX-Workflow
 und einem Starttest der portablen EXE geprüft. Umfang und wiederholbare
 Abnahmeskripte stehen im [Prüfbericht](docs/RELEASE-V1.1.md).
 

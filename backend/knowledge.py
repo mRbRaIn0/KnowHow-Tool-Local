@@ -128,18 +128,28 @@ async def hybrid_search(root: Path, database: Database, query: str,
     status = (await sync_index(root, database, client, embed_model, excluded_dirs=excluded_dirs)
               if refresh and root else await asyncio.to_thread(database.knowledge_stats))
 
-    query_vector: List[float] = []
-    if client and embed_model and database.search.vec:
-        try:
-            vectors = await client.embed(embed_model, [query])
-            query_vector = vectors[0] if vectors else []
-        except OllamaError as exc:
-            log.info("Semantische Anfrage fällt auf Stichwortsuche zurück: %s", exc.message)
-
     vault_allowed = root and database.get_meta("search_vault_scope") == _scope(root, excluded_dirs)
     namespaces = ("vault",) if vault_allowed else ()
-    results = await asyncio.to_thread(database.search.search, query, query_vector, embed_model,
+    lexical = await asyncio.to_thread(database.search.search, query, [], embed_model,
                                       namespaces, max(1, min(limit, 20)))
+    # Exact words, phrases and paths already have useful local hits. Avoid
+    # loading an embedding model (and potentially evicting the chat model).
+    needle = query.strip().casefold()
+    exact = bool(needle and any(
+        needle in item.get("content", "").casefold()
+        or needle in item.get("path", "").casefold() for item in lexical
+    ))
+    query_vector: List[float] = []
+    if not exact and client and embed_model and database.search.vec:
+        try:
+            vectors = await asyncio.wait_for(client.embed(embed_model, [query]), timeout=3.0)
+            query_vector = vectors[0] if vectors else []
+        except (OllamaError, asyncio.TimeoutError) as exc:
+            log.info("Semantische Anfrage fällt auf Stichwortsuche zurück: %s", str(exc))
+
+    results = (await asyncio.to_thread(database.search.search, query, query_vector, embed_model,
+                                       namespaces, max(1, min(limit, 20)))
+               if query_vector else lexical)
     return {
         "query": query, "results": results, "index": status,
         "semantic": bool(query_vector),
