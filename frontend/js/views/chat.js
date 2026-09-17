@@ -992,14 +992,14 @@ async function stopCurrent() {
 
 function send() {
   if (settingsPending) { toast('Modell-Einstellung wird noch gespeichert …'); return; }
-  const content = elements.input.value.trim();
-  if ((!content && !attachmentState.length) || !state.activeChatId) return;
+  const content = elements.input.value;
+  if ((!content.trim() && !attachmentState.length) || !state.activeChatId) return;
 
   if (stream.isRunning(state.activeChatId)) {
     toast('Dieser Chat antwortet gerade noch.');
     return;
   }
-  if (!state.status?.ollama?.online) {
+  if (activeMode.purpose === 'ask' && !state.status?.ollama?.online) {
     toast('Ollama ist nicht erreichbar. Starte den Dienst und versuche es erneut.', 'bad');
     return;
   }
@@ -1018,7 +1018,7 @@ function send() {
 
   stream.send(
     state.activeChatId,
-    content || 'Übernimm die angehängten Dateien in den Vault und dokumentiere ihren Inhalt.',
+    content.trim() ? content : 'Übernimm die angehängten Dateien in den Vault und dokumentiere ihren Inhalt.',
     { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked,
       preview_writes: elements.previewToggle?.checked, source_notes: elements.sourceToggle?.checked },
   );

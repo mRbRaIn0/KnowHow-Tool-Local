@@ -21,7 +21,7 @@ _CREATE = re.compile(
 )
 _UPDATE = re.compile(
     r"\b(?:ergänz\w*|erweiter\w*|aktualisier\w*|überarbeit\w*|"
-    r"vervollständig\w*|füg\w*.{0,18}hinzu|append|update|extend)\b",
+    r"vervollständig\w*|füg\w*[^.!?]{0,200}hinzu|append|update|extend)\b",
     re.IGNORECASE | re.DOTALL,
 )
 _EDIT = re.compile(

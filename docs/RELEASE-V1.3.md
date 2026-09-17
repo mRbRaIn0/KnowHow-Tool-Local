@@ -4,6 +4,14 @@ Stand: 17.09.2026
 
 ## Änderungen
 
+- Nachbesserung der Dateiaktionen: Erstellen, Anhängen, exakte Suche, Löschen,
+  Umbenennen und Verschieben eindeutiger Ziele direkt ohne Ollama. Auch leere
+  Notizen werden verwendet; Mehrdeutigkeit führt zur Ordnerfrage. Ergänzungen
+  erzeugen keine nummerierten Ersatznotizen. Vorschau und Rücknahme bleiben
+  verfügbar. [Befehle und Laufzeitdiagnose](DIRECT-ACTIONS.md).
+- Konfigurierbare Modellhaltezeit (Vorgabe zehn Minuten) und getrennte lokale
+  Laufzeitmesswerte für Laden, erste Ausgabe und Generierung.
+
 - Reine Ablageaufträge werden direkt ausgeführt: kein Ollama-Aufruf, keine
   Vision-Auswertung, keine Wissenssuche und keine künstliche Begleitnotiz.
   Explizite Zielordner in Anführungszeichen werden übernommen; ansonsten gilt
@@ -28,7 +36,8 @@ Stand: 17.09.2026
   klaren Hinweis statt stiller Kürzung. Chats bleiben vollständig gespeichert.
 - Der generierte Vault-Index bleibt in `00 Inhalt.md`, entfällt aber im Prompt.
   Individuelle Regeln vor und nach dem Index bleiben verfügbar. Der Index wird
-  nach Dateiaktionen einmal pro Chatdurchlauf aktualisiert. Neue Notizen ohne
+  nach Modellaufträgen einmal pro Chatdurchlauf aktualisiert; direkte Datei-I/O
+  baut ihn nicht synchron neu auf. Neue Notizen ohne
   Quellenlinks benötigen keinen vollständigen Scan aller Bild-/Dokumentdateien.
 - Thinking ist für neue Profile standardmäßig aus. Bestehende gespeicherte
   Entscheidungen sowie die Auswahl pro Nachricht bleiben erhalten.

@@ -87,6 +87,7 @@ class OllamaSettings(BaseModel):
     chat_model: str = "qwen3.5:9b"
     embed_model: str = "nomic-embed-text"
     vision_model: str = "qwen3-vl:8b"
+    keep_alive: str = Field(default="10m", pattern=r"^(?:0|[1-9][0-9]*(?:s|m|h))$")
 
 
 class AISettings(BaseModel):

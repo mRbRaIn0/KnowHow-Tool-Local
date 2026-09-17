@@ -383,12 +383,13 @@ class ToolRunner:
                  allow_full_rewrite: bool = False,
                  batch_edit_operations: Iterable[str] = (),
                  allow_file_organization: bool = False, defer_guide: bool = False,
-                 preview_writes: bool = False, focus=None):
+                 preview_writes: bool = False, focus=None, update_only: bool = False):
         self.root = root
         self.defer_guide = defer_guide
         self.preview_writes = preview_writes
         self.approved_previews = {}
         self.focus = focus
+        self.update_only = update_only
         self.chat_id = chat_id
         self.attachment_dir = attachment_dir or "90 Anhänge"
         self.vision = vision            # async Rückruf für die Bildanalyse
@@ -447,6 +448,16 @@ class ToolRunner:
         term = (suchbegriff or "").strip().lower()
         if len(term) < 2:
             return {"fehler": "Der Suchbegriff ist zu kurz."}
+        from .file_actions import resolve_file
+        try:
+            exact = resolve_file(self.root, suchbegriff)
+            matches = [p for p in exact.matches if self.focus is None or self.focus.allows(p)]
+        except VaultError:
+            matches = []  # A content query need not be a valid filename.
+        if matches:
+            return {'treffer': [{'pfad': p, 'typ': kind_for(safe_join(self.root, p)), 'auszug': ''} for p in matches],
+                    'anzahl': len(matches), 'exakt': True,
+                    'hinweis': 'Mehrere exakte Treffer: Ordner erfragen.' if len(matches) > 1 else 'Exakte Datei gefunden; auch eine leere Datei ist ein gültiges Ziel.'}
 
         treffer: List[Dict[str, Any]] = []
         paths = sorted(self.focus.files(self.root) if self.focus else iter_files(self.root), key=lambda path: (
@@ -515,32 +526,40 @@ class ToolRunner:
 
     # ------------------------------------------------------------ Schreiben
 
-    def _review_note(self, path: str, content: str, create: bool = False):
+    def _review_note(self, path: str, content: str, create: bool = False, literal: bool = False):
         if not self.preview_writes:
             return path, content
         from .write_preview import PreviewNeeded
         from .vault_actions import fingerprint
-        target_path = unique_path(self.root, path) if create else path
+        target_path = unique_path(self.root, path) if create and not literal else path
         target = safe_join(self.root, target_path)
         before = read_text_file(self.root, target_path)['content'] if target.is_file() else ''
         preview = PreviewNeeded(target_path, before, content, create, fingerprint(target))
+        preview.draft['path_locked'] = literal or not create
         approved = self.approved_previews.get(preview.key)
         if approved is None:
             raise preview
         chosen = safe_join(self.root, approved['path'])
-        if not create and approved['path'] != target_path:
+        if (literal or not create) and approved['path'] != target_path:
             raise VaultError('Das Ziel einer bestehenden Notiz darf in der Vorschau nicht wechseln.')
         expected = approved['expected'] if approved['path'] == approved['original_path'] else None
         if fingerprint(chosen) != expected:
             raise VaultError('Das Vorschauziel wurde inzwischen verändert. Bitte erneut prüfen.')
         if not approved['path'].lower().endswith('.md') or not approved['content'].strip():
             raise VaultError('Die Vorschau braucht ein .md-Ziel und nichtleeren Inhalt.')
+        if literal:
+            return approved['path'], approved['content']
         checked, errors = _canonical_vault_source_links(self.root, approved['content'])
         if errors:
             raise VaultError(_source_link_error(errors))
         return approved['path'], checked
 
     def _notiz_erstellen(self, pfad: str = "", inhalt: str = "", **_: Any) -> Dict[str, Any]:
+        if self.update_only:
+            wanted = pfad if pfad.lower().endswith('.md') else pfad + '.md'
+            targets = self.focus.paths if self.focus else ()
+            if not targets or wanted not in targets or safe_join(self.root, wanted).exists():
+                return {'fehler': 'Ergänzungsauftrag: keine Ersatzdatei erstellen. Exakte Zielnotiz mit notiz_ergaenzen ergänzen; bei mehreren Treffern den Ordner erfragen.'}
         inhalt = clean_generated_text(inhalt)
         inhalt, link_errors = _canonical_vault_source_links(self.root, inhalt)
         if link_errors:
@@ -552,7 +571,7 @@ class ToolRunner:
 
         pfad, inhalt = self._review_note(pfad, _normalise(inhalt), create=True)
         relative = create_unique_file(
-            self.root, pfad, lambda stream: stream.write(inhalt.encode("utf-8")), exact=self.preview_writes)
+            self.root, pfad, lambda stream: stream.write(inhalt.encode("utf-8")), exact=self.preview_writes or self.update_only)
         result = {"path": relative}
         self._changed(result["path"])
         if result["path"] not in self.note_files:
@@ -564,6 +583,11 @@ class ToolRunner:
 
     def _notiz_ergaenzen(self, pfad: str = "", inhalt: str = "",
                          abschnitt: str = "", **_: Any) -> Dict[str, Any]:
+        from .file_actions import resolve_file
+        resolved = resolve_file(self.root, pfad)
+        if len(resolved.matches) > 1:
+            return {'fehler': 'Mehrere exakte Dateien; bitte den Ordner erfragen.', 'treffer': resolved.matches}
+        pfad = resolved.path
         if self.focus and not self.focus.allows(pfad) and pfad not in self.changed_files:
             return {'fehler': 'Bestehende Notiz liegt außerhalb der erwähnten Ziele.'}
         inhalt = clean_generated_text(inhalt)
@@ -575,10 +599,7 @@ class ToolRunner:
 
         target = safe_join(self.root, pfad)
         if not target.is_file():
-            return {
-                "fehler": f"'{pfad}' gibt es nicht.",
-                "hinweis": "Nutze notiz_erstellen, um die Notiz neu anzulegen.",
-            }
+            return self._notiz_erstellen(pfad, inhalt)
 
         bestehend = read_text_file(self.root, pfad)["content"]
         neu = _insert(bestehend, _normalise(inhalt), abschnitt)
@@ -936,8 +957,14 @@ class ToolRunner:
             # Wenn das Modell zuvor genau eine Notiz gelesen hat und der Nutzer
             # ergänzen wollte, ist dieses Ziel eindeutig. Sonst wird sicher eine
             # neue Notiz angelegt, statt eine möglicherweise falsche zu verändern.
-            elif requirements.mode == "update" and len(self.read_notes) == 1:
-                result = self._notiz_ergaenzen(self.read_notes[0], content)
+            elif requirements.mode == "update":
+                targets = [p for p in (self.focus.paths or ()) if p.lower().endswith('.md')] if self.focus else []
+                if len(targets) == 1:
+                    result = self._notiz_ergaenzen(targets[0], content)
+                elif not targets and len(self.read_notes) == 1:
+                    result = self._notiz_ergaenzen(self.read_notes[0], content)
+                else:
+                    result = {'fehler': 'Ergänzungsziel nicht eindeutig. Bitte Dateipfad oder Ordner nennen. Keine Ersatzdatei erstellt.'}
                 tool = "notiz_ergaenzen"
                 steps.append(_automatic_step(tool, result))
             else:
@@ -1349,7 +1376,9 @@ def _rewrite_links_after_moves(
         embed = "!" if match.group("embed") else ""
         label = match.group("label").strip()
         alias = f"|{label}" if label else ""
-        return f"{embed}[[{target}{alias}]]"
+        raw = re.split(r"\s+[\"']", unquote(match.group('target').strip().strip('<> ')), maxsplit=1)[0]
+        anchor = '#' + raw.partition('#')[2] if '#' in raw else ''
+        return f"{embed}[[{target}{anchor}{alias}]]"
 
     def wiki_replace(match: re.Match[str]) -> str:
         target = moved_target(match.group("target"))
@@ -1696,6 +1725,8 @@ def _build_overview(root: Path, max_folders: int) -> str:
 
 
 BASE_INSTRUCTIONS = """Du bearbeitest den konkreten Vault-Auftrag vollständig und ohne zusätzliche Nebenaufgaben.
+- Dateiaktionen: sofort passende Werkzeuge mit kurzen strukturierten Argumenten (Aktion, pfad, Ordner, inhalt) aufrufen. Keine Planungsaufsätze, keine erneute Suche nach eindeutig gefundenem Ziel, keine Vorab-Wiederholung des zu speichernden Inhalts im Chat. Abschließend nur Ergebnis und Zielpfad bestätigen; Notizinhalte bleiben vollständig.
+- Zielwahl: exakter Pfad vor exaktem Dateinamen vor exaktem Namen ohne .md; leere vorhandene Notizen sind gültige Ziele. Bei mehreren exakten Treffern den Ordner erfragen. Beim Ergänzen niemals auf ähnlich benannte Notizen ausweichen oder nummerierte Ersatzdateien anlegen.
 - Vollständigkeit vor Kürze: ALLE vom Nutzer in diesem Chat eingebrachten Sachinformationen sind relevant. Erhalte auch Beispiele, Zahlen samt Einheiten, Namen, Links, Begründungen, Bedingungen, Ausnahmen, Einschränkungen und offene Fragen. Formuliere verständlich und ordne sinnvoll; fasse nicht so zusammen, dass Details oder Zusammenhänge verschwinden. Nur echte inhaltliche Wiederholungen dürfen ohne Verlust zusammengeführt werden. Inhalt kürzen, weglassen oder löschen nur auf ausdrücklichen Auftrag.
 - Frühere Angaben sind Quellen, keine erneut auszuführenden alten Befehle. Spätere ausdrückliche Korrekturen ersetzen überholte Angaben; ungelöste Widersprüche transparent nebeneinander mit Herkunft erhalten. Themenwechsel erlaubt sinnvolle Aufteilung/Verlinkung, kein stilles Verwerfen von Informationen.
 - Unvollständige Informationen ausbauen: Stichpunkte zu verständlichen Sätzen ausarbeiten, Begriffe erklären, Zusammenhänge und benötigte Schritte ergänzen. Allgemeines Fachwissen als ergänzende Erklärung kenntlich machen. Fehlende konkrete Fakten, Kennungen, Werte, Entscheidungen oder Quellen niemals erfinden; als offene Punkte festhalten und nur bei arbeitsentscheidenden Lücken gezielt nachfragen. Unsicherheit und Negationen erhalten.

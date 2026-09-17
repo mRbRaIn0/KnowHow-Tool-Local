@@ -48,7 +48,7 @@ export function writePreview(draft, chatId, resolved = () => {}) {
     h('button', { class: 'btn', type: 'button', onclick: () => {
       editor.hidden = false;
       diff.hidden = true;
-      path.readOnly = !draft.create;
+      path.readOnly = draft.path_locked || !draft.create;
       editor.focus();
       status.textContent = 'Inhalt bearbeiten und anschließend übernehmen. Bestehende Notizen behalten ihren Zielpfad.';
     } }, 'Anpassen'),

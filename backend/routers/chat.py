@@ -34,6 +34,7 @@ from ..write_preview import pending as pending_previews, reviewed_call, PreviewC
 from ..vision_batch import VisionBatch, model_lock
 from ..source_notes import save_source_note, has_visual_content
 from ..context_focus import VaultFocus, resolve_focus
+from ..file_actions import parse_file_action, continue_file_action, execute_file_action
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chats", tags=["chat"])
@@ -346,7 +347,11 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         })
 
     model = request.model or profile.ollama.chat_model
-    client = current_ollama(profile)
+    pending_key = 'file_action:' + chat_id
+    pending_plan = json.loads(database.get_meta(pending_key) or 'null')
+    file_action = (parse_file_action(request.content) or continue_file_action(request.content, pending_plan)) if not question_mode else None
+    if pending_plan and file_action is None:
+        database.set_meta(pending_key, 'null')
 
     # Der Vault steht auch bei Modellen ohne Tool-Calling für das deterministische
     # Schreib-Sicherheitsnetz bereit. Werkzeugdefinitionen bekommt das Modell
@@ -364,7 +369,8 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         direct_archive = None
     if request.attachments or vorhandene_anhaenge:
         direct_path = None
-    direct = bool(direct_path) or direct_archive is not None
+    direct = file_action is not None or bool(direct_path) or direct_archive is not None
+    client = current_ollama(profile) if not file_action else None
     try:
         capabilities = [] if direct else await client.capabilities(model)
     except OllamaError as exc:
@@ -481,6 +487,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         defer_guide=True,
         preview_writes=profile.ai.preview_writes if request.preview_writes is None else request.preview_writes,
         focus=focus,
+        update_only=requirements.mode == 'update',
     ) if root and not question_mode else None
 
     if resume and runner:
@@ -629,6 +636,49 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             completed = True
             content = persist()
             yield _sse({"type": "error", "message": content, "kind": "context_full"})
+            return
+        if file_action and runner:
+            started = time.perf_counter()
+            try:
+                async for reviewed in reviewed_call(runner, profile.id, chat_id,
+                        lambda: vault_io(execute_file_action, runner, file_action)):
+                    if 'preview' in reviewed:
+                        yield _sse({'type': 'write_preview', 'preview': reviewed['preview']})
+                    else:
+                        result = reviewed['result']
+                database.set_meta(pending_key, json.dumps(result.get('plan')) if result.get('needs_input') else 'null')
+                result.pop('plan', None)
+                content_parts.append(result['message'])
+                step = {'tool': 'datei_direkt', 'arguments': {'action': file_action.action, 'pfad': file_action.file},
+                        'result': result, 'writing': file_action.action != 'find', 'ok': not result.get('needs_input')}
+                steps.append(step)
+                yield _sse({'type': 'tool_result', **step})
+                completed = True
+                yield _sse({'type': 'done', 'message_id': assistant['id'], 'content': persist(),
+                            'steps': steps, 'changed_files': runner.changed_files,
+                            'elapsed_ms': round((time.perf_counter()-started)*1000, 2)})
+            except PreviewCancelled:
+                database.set_meta(pending_key, 'null')
+                raise
+            except (VaultError, OSError, ValueError) as exc:
+                action = active_action.get()
+                if action and runner.changed_files:
+                    try:
+                        await vault_io(action.rollback)
+                        runner.changed_files.clear()
+                    except (VaultError, OSError, ValueError) as rollback_error:
+                        content_parts.append(f'Rücknahme fehlgeschlagen: {rollback_error}. ')
+                completed = True
+                content_parts.append(str(exc))
+                yield _sse({'type': 'error', 'kind': 'file_action', 'message': persist()})
+            finally:
+                # No synchronous whole-Vault index regeneration on literal I/O.
+                # The file watcher refreshes search independently.
+                if runner.changed_files:
+                    from ..tools import invalidate_overview
+                    invalidate_overview(root)
+                if not completed:
+                    persist('Dateiauftrag unterbrochen; bestätigte Änderungen bleiben rücknehmbar.')
             return
         if direct_archive is not None and runner:
             try:

@@ -33,6 +33,8 @@ $zipArchive = [IO.Compression.ZipFile]::Open($releaseZip, [IO.Compression.ZipArc
 try {
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
         $zipArchive, (Join-Path $PSScriptRoot 'docs\RELEASE-V1.3.md'), 'docs/RELEASE-V1.3.md') | Out-Null
+    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $zipArchive, (Join-Path $PSScriptRoot 'docs\DIRECT-ACTIONS.md'), 'docs/DIRECT-ACTIONS.md') | Out-Null
 } finally {
     $zipArchive.Dispose()
 }

@@ -36,7 +36,12 @@ def save_source_note(runner, name, text, record, data_dir):
                f"Original: [[{source['abgelegt']}]]\n\n"
                f'Auswertung: {status}. Automatisch erkannter Text; Unsicherheiten aus der Auswertung beachten.\n\n'
                f'## Erkannter Text und Bildwissen\n\n{literal_text}\n')
-    result = runner._notiz_erstellen(f'91 Quellenwissen/{title}.md', content)
+    update_only = runner.update_only
+    try:
+        runner.update_only = False
+        result = runner._notiz_erstellen(f'91 Quellenwissen/{title}.md', content)
+    finally:
+        runner.update_only = update_only
     if 'erstellt' not in result:
         return result
     path = result['erstellt']

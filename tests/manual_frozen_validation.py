@@ -81,6 +81,22 @@ def run():
                 assert events[-1]["changed_files"] == [f"Projekt/Dateien/{expected}"]
                 assert (vault / "Projekt/Dateien" / expected).read_bytes() == b"synthetic image bytes"
             direct_seconds = time.monotonic() - direct_started
+            # Exact literal writes must work against the packaged app without Ollama.
+            (vault / 'SPS').mkdir()
+            (vault / 'SPS/delete2.md').write_text('', encoding='utf-8')
+            (vault / 'SPS/delete21.md').write_text('unverändert', encoding='utf-8')
+            append_started = time.monotonic()
+            response = client.post(f"/api/chats/{work['id']}/message", json={
+                'content': 'Füge diesen Text zu `SPS/delete2.md` hinzu:\n**Wert**: 42\n',
+                'preview_writes': False})
+            exact_append_seconds = time.monotonic() - append_started
+            events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith('data: ')]
+            assert events[-1]['type'] == 'done'
+            assert events[1]['execution'] == 'direct'
+            assert (vault / 'SPS/delete2.md').read_text(encoding='utf-8') == '**Wert**: 42\n'
+            assert (vault / 'SPS/delete21.md').read_text(encoding='utf-8') == 'unverändert'
+            assert client.post('/api/chats/vault/undo').json()['undone']
+            assert (vault / 'SPS/delete2.md').read_text() == ''
             # The real packaged server must wait before writing and accept edits.
             preview_work = client.post('/api/chats', json={'purpose': 'vault'}).json()
             path = f"/api/chats/{preview_work['id']}"
@@ -121,9 +137,11 @@ def run():
         (folder / "report.json").write_text(json.dumps({
             "ok": True, "version": "1.3", "portable": True,
             "two_direct_upload_and_archive_seconds": round(direct_seconds, 3),
+            "exact_append_seconds": round(exact_append_seconds, 3),
             "checks": ["self-test", "startup", "session", "host", "origin", "frontend",
                        "settings", "write", "read", "search", "direct-archive", "collision-numbering",
-                       "write-preview", "edited-approval", "stale-preview", "preview-cancel", "undo", "undo-conflict"],
+                       "write-preview", "edited-approval", "stale-preview", "preview-cancel", "undo", "undo-conflict",
+                       "offline-exact-append-empty-note", "similar-filename-untouched", "exact-append-undo"],
         }, indent=2), encoding="utf-8")
         print("Frozen acceptance OK: " + str(folder / "report.json"), flush=True)
     finally:

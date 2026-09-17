@@ -81,6 +81,8 @@ def resolve_focus(root: Path, prompt: str, global_default=False) -> VaultFocus:
     for value in unresolved:
         matches = set()
         if '/' not in value:
+            exact_files = {to_relative(root, path) for path in known or []
+                           if path.name.casefold() == value.casefold()}
             for path in known or []:
                 if value.casefold() in {path.name.casefold(), path.stem.casefold()}:
                     matches.add(to_relative(root, path))
@@ -89,6 +91,8 @@ def resolve_focus(root: Path, prompt: str, global_default=False) -> VaultFocus:
                         break
                     if parent.name.casefold() == value.casefold():
                         matches.add(to_relative(root, parent) + '/')
+            if exact_files:
+                matches = exact_files
         if len(matches) == 1:
             targets.extend(matches)
         elif len(matches) > 1:

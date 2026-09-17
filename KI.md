@@ -4,6 +4,14 @@ Diese Datei beschreibt verbindlich, **wie die KI der Anwendung arbeiten soll**.
 Sie ergänzt die [README](README.md), die Installation, Bedienung und den gesamten
 Funktionsumfang erklärt.
 
+Eindeutige Dateiaktionen mit fertigem Text laufen vor dem Modell direkt in Code.
+Exakte Pfade, Dateinamen und Markdown-Stämme werden in dieser Reihenfolge
+aufgelöst. Beim Ergänzen gilt auch eine leere Datei als vorhandenes Ziel;
+mehrdeutige Namen erfordern eine Ordnerangabe. Ein fehlender exakter Zielpfad
+wird unter demselben Namen erstellt, niemals als nummerierte Ersatznotiz.
+Die direkte Übernahme verändert den gelieferten Text nicht inhaltlich.
+[Befehlsbeispiele und Performance-Verhalten](docs/DIRECT-ACTIONS.md).
+
 Es gibt drei Dokumentationsebenen:
 
 1. `README.md` ist der allgemeine Einstieg in das Programm.

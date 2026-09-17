@@ -147,6 +147,12 @@ function ollamaCard(profile, view) {
           ? h('button', { class: 'btn btn--sm btn--primary', onclick: () => pullModel(profile.ollama.chat_model, view) },
             'Herunterladen')
           : null)),
+    field('Modell im Speicher halten', 'Vermeidet erneutes Laden zwischen Anfragen. Datei-Direktaktionen benötigen kein Modell.',
+      h('input', { class: 'input input--mono', value: profile.ollama.keep_alive || '10m',
+        placeholder: '10m', pattern: '0|[1-9][0-9]*[smh]',
+        onchange: (event) => {
+          if (event.target.reportValidity()) patch({ ollama: { keep_alive: event.target.value } });
+        } })),
     field('Embedding-Modell', 'Erzeugt die lokalen Vektoren für die semantische Wissenssuche.',
       h('div', { class: 'row' }, embedSelect,
         h('button', {

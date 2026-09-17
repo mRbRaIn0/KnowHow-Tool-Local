@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -48,9 +49,10 @@ def assert_local(base_url: str, offline_mode: bool) -> None:
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, offline_mode: bool = True):
+    def __init__(self, base_url: str, offline_mode: bool = True, keep_alive: str = '10m'):
         self.base_url = (base_url or "http://127.0.0.1:11434").rstrip("/")
         self.offline_mode = offline_mode
+        self.keep_alive = keep_alive
         assert_local(self.base_url, offline_mode)
 
     def _client(self, timeout: httpx.Timeout = DEFAULT_TIMEOUT) -> httpx.AsyncClient:
@@ -145,7 +147,7 @@ class OllamaClient:
         ausdrücklich. Modelle ohne Thinking-Fähigkeit lehnen das Feld ab —
         deshalb wird es nur gesetzt, wenn die Fähigkeit bekannt ist.
         """
-        payload: Dict[str, Any] = {"model": model, "messages": messages, "stream": True}
+        payload: Dict[str, Any] = {"model": model, "messages": messages, "stream": True, "keep_alive": self.keep_alive}
         if options:
             payload["options"] = options
         if think is not None:
@@ -153,6 +155,8 @@ class OllamaClient:
         if tools:
             payload["tools"] = tools
 
+        started = time.perf_counter()
+        first_output_ms = None
         try:
             async with self._client() as client:
                 async with client.stream("POST", "/api/chat", json=payload) as response:
@@ -170,7 +174,15 @@ class OllamaClient:
                         if not line.strip():
                             continue
                         try:
-                            yield json.loads(line)
+                            chunk = json.loads(line)
+                            message = chunk.get('message') or {}
+                            if first_output_ms is None and any(message.get(k) for k in ('content', 'thinking', 'tool_calls')):
+                                first_output_ms = round((time.perf_counter() - started) * 1000, 1)
+                            if chunk.get('done'):
+                                metrics = {k: chunk.get(k) for k in ('load_duration', 'prompt_eval_duration', 'prompt_eval_count', 'eval_duration', 'eval_count')}
+                                log.info('Ollama timing model=%s first_output_ms=%s wall_ms=%.1f metrics_ns=%s',
+                                         model, first_output_ms, (time.perf_counter()-started)*1000, metrics)
+                            yield chunk
                         except json.JSONDecodeError:
                             log.warning("Ungültige Streamzeile von Ollama: %r", line[:200])
         except OllamaError:

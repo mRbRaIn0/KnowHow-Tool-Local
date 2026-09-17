@@ -1,5 +1,10 @@
 # KnowHow Tool · V1.3
 
+**Direkte Dateiaktionen:** Fertigen Text mit `Füge diesen Text zu SPS/delete2.md hinzu:`
+und anschließendem Inhalt ohne Modellaufruf ergänzen – auch bei leerer Notiz.
+Exakte Pfade haben Vorrang; mehrere Treffer lösen eine Ordnerfrage aus.
+[Befehle, Performance-Diagnose und Grenzen](docs/DIRECT-ACTIONS.md).
+
 Lokale Wissens-KI für Windows von **mRbRaIn0**. Sammle Informationen, Bilder und
 Dokumente in einem eigenen Wissensordner und frage ihre Inhalte mit Quellen ab.
 Die KI läuft über Ollama auf deinem Rechner; Notizen bleiben normale

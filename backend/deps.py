@@ -23,7 +23,7 @@ def current_db(profile: Profile | None = None) -> Database:
 def current_ollama(profile: Profile | None = None) -> OllamaClient:
     profile = profile or current_profile()
     try:
-        return OllamaClient(profile.ollama.base_url, profile.privacy.offline_mode)
+        return OllamaClient(profile.ollama.base_url, profile.privacy.offline_mode, keep_alive=profile.ollama.keep_alive)
     except OllamaError as exc:
         raise HTTPException(status_code=exc.status,
                             detail={"message": exc.message, "kind": exc.kind}) from exc
