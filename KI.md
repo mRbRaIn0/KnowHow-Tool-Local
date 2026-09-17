@@ -24,7 +24,8 @@ Vault-Hauptseite und danach die allgemeinen Vorgaben aus dieser Datei.
 ## Empfohlene Modelle (Stand 11. September 2026)
 
 Das Standard-Chatmodell ist **`qwen3.5:9b`** (bei Ollama gibt es kein `qwen3:9b`).
-Thinking ist standardmäßig an und lässt sich in der Eingabe abschalten.
+Neue Profile starten mit Thinking aus; die Eingabe kann es einschalten.
+Explizit gespeicherte Einstellungen bestehender Profile bleiben erhalten.
 
 | Modell | Kann | Kann nicht / Grenzen |
 |---|---|---|
@@ -306,8 +307,9 @@ Unterordner Materialien“. Der Rest der Hauptseite bleibt dabei erhalten.
 
 ### Vor der Antwort auswerten
 
-Relevante Anhänge werden vollständig vor der eigentlichen Modellantwort
-ausgewertet. Dadurch entscheidet nicht das Modell zufällig, ob es die zehnte
+Bei inhaltlichen Aufgaben werden relevante Anhänge vor der eigentlichen
+Modellantwort ausgewertet. Eine eindeutige reine Ablageanweisung kopiert die
+Originale dagegen direkt ohne Inhaltsanalyse oder Modellaufruf. Dadurch entscheidet nicht das Modell zufällig, ob es die zehnte
 Datei noch liest.
 
 - Text, Markdown und Quellcode werden lokal gelesen.
@@ -326,8 +328,10 @@ thematische Quellen gehören möglichst in `<Themenordner>/Dateien/`.
 
 Die Dateiendung stammt immer vom Original. Ein Modell kann daher kein PDF unter
 einer erfundenen `.md`-Endung speichern. Existierende Zieldateien werden nicht
-überschrieben; stattdessen wird ein freier Name gewählt oder ein Konflikt
-gemeldet.
+überschrieben; stattdessen wird automatisch nummeriert: `image.png`, `image1.png`,
+`image2.png`. Gleichzeitige Kopiervorgänge legen Dateien exklusiv an. Neue
+Notizen verwenden dieselbe Nummerierung; explizite Bearbeitungen ändern weiterhin
+die ausgewählte bestehende Notiz.
 
 ### Quellenlinks
 
@@ -349,6 +353,101 @@ PDFs und Bildern“ werden entfernt. Die Herkunft wird durch konkrete Quellenlin
 und fachlich zugeordnete Belege nachvollziehbar.
 
 ---
+
+## V1.3: Aufgabenfokus und Syntaxwissen
+
+`backend/markdown_knowledge.py` liefert dem Arbeitschat eine kompakte, offline
+verfügbare Referenz: Überschriften 1–6, fett/kursiv/Markierung, Listen und
+Aufgaben, Code, Tabellen mit maskierten Pipes, WikiLinks mit Alias und Ankern,
+Einbettungen, Callouts, Fußnoten, YAML-Properties, Tags, Formeln und Mermaid.
+Die Regeln basieren auf der offiziellen Obsidian-Hilfe; sie ersetzen keine
+Prüfung der Modellqualität. Canvas/Bases und Community-Plugins sind ausdrücklich
+von Markdown-Syntax abgegrenzt. Die eigene Vorschau rendert nur einen Teil der
+Obsidian-Funktionen.
+
+Die Referenz liegt absichtlich im Code, damit jeder Schreibauftrag sie erhält.
+`00 Inhalt.md` enthält weiterhin individuelle Regeln. Ihr großer generierter
+Dateiindex wird nicht an das Modell geschickt; Regeln vor und nach dem Index
+bleiben erhalten. Vor einem Chat wird eine bestehende Hauptseite nur gelesen.
+Dateiänderungen des Chats aktualisieren ihren Index gebündelt am Abschluss,
+auch nach einem Abbruch. Eigene Hauptseiten ohne Indexmarkierungen bleiben erhalten.
+
+Im Arbeitschat bleiben alle Nutzereingaben erhalten: Fakten, Zahlen, Einheiten,
+Beispiele, Links, Ausnahmen, Bedingungen und offene Fragen. Nur echte
+Wiederholungen werden zusammengeführt; spätere Korrekturen ersetzen frühere
+Angaben. Die KI soll sinnvoll strukturieren und verständlich ausarbeiten,
+ergänzendes Fachwissen kennzeichnen und unbekannte konkrete Fakten offenlassen.
+Überschreiten die Nutzereingaben das Zeichenbudget, endet der Auftrag mit einem
+Hinweis zur Kontextgröße, bevor Dateiaktionen beginnen. Es gibt keine stille
+Kürzung alter Nutzerangaben. Dies ersetzt keine semantische Qualitätsprüfung
+des erzeugten Textes.
+
+Der zusätzliche Vault-Kontext konzentriert sich auf ausdrücklich genannte
+Dateien und Ordner (`"Projekt/Notiz.md"`, `[[Projekt/Notiz]]`, `Ordner "Projekt"`).
+Ohne solche Ziele erhält der Arbeitschat keinen allgemeinen Ordnerindex und
+keine automatische Suche im ganzen Vault. Mehrdeutige Basenamen erfordern den
+vollständigen Pfad. „Dort“ kann das letzte eindeutig bestätigte Schreibziel
+aufgreifen; „weiter“ erhält den ursprünglichen Auftrag. Ein expliziter globaler
+Auftrag erweitert den Umfang. Allgemeine Wissensfragen dürfen weiterhin global
+suchen, während Fragen mit Pfadangabe innerhalb dieses Ziels bleiben.
+
+Such- und Lesewerkzeuge setzen den Fokus im Backend durch. Die Stichwort- und
+Vektorsuche filtert Pfade vor der Trefferauswahl. Lange Notizen werden mit
+`naechster_offset` vollständig gelesen. Frühere KI-Prosa und fremde Leseauszüge
+entfallen im Arbeitskontext; passende bestätigte Aktionen bleiben als kompakte
+Pfade und Status erhalten. Alle Nachrichten bleiben in der lokalen Datenbank.
+Globale Gestaltungsregeln aus `00 Inhalt.md` und bewusst gewählte Vorlagen
+bleiben als Arbeitsrahmen verfügbar, ohne den generierten Vault-Index.
+
+Reine Ablagebefehle werden nur bei vollständigem, eindeutigem Wortlaut direkt
+ausgeführt, z.B. „Datei schnell ablegen“ oder „Kopiere die Dateien in
+"Projekt/Dateien"“. Ohne angegebenen Zielordner gilt der konfigurierte
+Anhangordner. Es entsteht dabei keine zusätzliche Notiz. Der Chat bestätigt
+jeden echten Zielpfad; fehlgeschlagene Kopien bleiben als offene Anhänge erhalten.
+Mehrdeutige und zusammengesetzte Aufträge gehen weiter an das Modell.
+
+### Schreibvorschau und Rücknahme
+
+Die standardmäßig aktive Schreibvorschau zeigt vor `notiz_erstellen`,
+`notiz_ergaenzen` und `notiz_bearbeiten` den alten/neuen Inhalt, Diff, Quellenlinks
+und Zielpfad. „Anpassen“ erlaubt vollständige Inhaltskorrekturen und bei neuen
+Notizen auch den Zielpfad. Externe Änderungen erfordern eine erneute Vorschau.
+„Abbrechen“ beendet den Auftrag und nimmt seine bisherigen Dateiänderungen
+zurück, sofern keine neueren externen Änderungen dagegenstehen. „Stopp“ erhält
+den bereits bestätigten Arbeitsstand; er ist über Rückgängig zurücknehmbar.
+Mechanische Stapeländerungen und Originalkopien verwenden keine Einzelnotiz-
+Vorschau; sie werden durch ihren ausdrücklichen Auftrag und Rücknahme abgesichert.
+
+Das profilgebundene Journal unter `data/profiles/<id>/vault-actions` sichert
+Originalinhalte, neue Dateien und Verschiebungen einschließlich reparierter
+Links. „Letzten Vault-Auftrag rückgängig“ prüft zuerst sämtliche betroffenen
+Dateien auf zwischenzeitliche Änderungen und stellt dann die Originale wieder
+her. Rücknahme ist auch nach Neustart möglich; es handelt sich um eine einzelne
+Rücknahme, keine vollständige Versionsverwaltung. Leere Ordner dürfen bleiben.
+Manuelle Editoraktionen sind keine KI-Aufträge und werden nicht mit zurückgesetzt.
+
+### Bildwissen und serielles Vision-Modell
+
+Nach einer Bild-/Scan-Auswertung erzeugt die App ohne zusätzliche Modellrunde
+eine Markdown-Quellennotiz unter `91 Quellenwissen`. Der Quellenkopf ist kurz;
+OCR und Bildbeschreibung bleiben vollständig, einschließlich erkannter
+Gerätekennungen, Seitenangaben und Unsicherheiten. Ein echter Original-Link
+verbindet Notiz und abgelegte Quelle. Die Quellennotiz ist im Wissensindex
+auffindbar und ersetzt eine ausdrücklich verlangte ausgearbeitete Wissensnotiz
+nicht. Teilanalysen sind als unvollständig gekennzeichnet. Vorschau und Quellen-
+ablage sind im Profil und pro Nachricht abschaltbar. „Nur ansehen“ und reine
+Direktablage erzeugen keine automatische Bildwissensnotiz.
+
+`ai.separate_vision` ist standardmäßig aus. Nach Aktivierung wird das unter
+`ollama.vision_model` gewählte, installierte und bildfähige Modell (Vorgabe
+`qwen3-vl:8b`) für den gesamten vorgeschalteten Bild-/Scanblock verwendet.
+Vorher wird das Chatmodell entladen; nach allen Seiten wird das Vision-Modell
+entladen, bevor das Chatmodell antwortet. Kein automatischer Split und keine
+parallelen großen Modelle durch Chat-Aufträge dieser App. Fehlendes VL und
+spätere `bild_ansehen`-Werkzeuge fallen auf das bildfähige Chatmodell zurück.
+Fehlt auch dort Vision, wird die Auswertung als unvollständig gemeldet.
+Es gibt keinen automatischen Modelldownload. Externe Ollama-Clients werden
+von der App nicht kontrolliert.
 
 ## Inhaltliche Qualität einer Notiz
 

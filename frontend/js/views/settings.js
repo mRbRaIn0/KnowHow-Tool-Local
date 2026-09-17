@@ -157,7 +157,7 @@ function ollamaCard(profile, view) {
       ? h('p', { class: 'field__hint', text: `${models.length} Modelle lokal installiert.` })
       : h('p', { class: 'field__hint', text: 'Keine Modelle gefunden — läuft Ollama?' }),
     h('p', { class: 'field__hint', style: 'margin-top:10px',
-      text: 'Stand 11.09.2026: Standard ist qwen3.5:9b (Thinking an) — Allrounder mit Deutsch, Werkzeugen und Bildern, braucht etwa 8 GB. qwen3.5:4b ist schneller, aber schwächer. qwen3-vl:8b eignet sich extra für Fotos und Scans, ersetzt den 9B-Allrounder nicht. nomic-embed-text ist nur die Suche, kein Chat. Chats liegen im Ordner data neben der EXE; bei Updates diesen Ordner behalten.' }));
+      text: 'Stand 11.09.2026: Standard ist qwen3.5:9b (neue Profile: Thinking aus für schnellere Antworten) — Allrounder mit Deutsch, Werkzeugen und Bildern, braucht etwa 8 GB. qwen3.5:4b ist schneller, aber schwächer. qwen3-vl:8b eignet sich extra für Fotos und Scans, ersetzt den 9B-Allrounder nicht. nomic-embed-text ist nur die Suche, kein Chat. Chats liegen im Ordner data neben der EXE; bei Updates diesen Ordner behalten.' }));
 }
 
 function modelSelect(value, onChange, allowEmpty = false) {
@@ -271,6 +271,18 @@ function aiCard(profile) {
       })),
     toggle('Gedankengang anzeigen', 'Zeigt den Denkprozess des Modells, sofern es ihn unterstützt.',
       profile.ai.thinking, (checked) => patch({ ai: { thinking: checked } })),
+    toggle('Schreibvorschau', 'Notizen vor dem Speichern als Alt → Neu prüfen, anpassen oder abbrechen.',
+      profile.ai.preview_writes, (checked) => patch({ ai: { preview_writes: checked } })),
+    toggle('Bild- und Scanwissen suchbar speichern', 'Erstellt Quellennotizen in 91 Quellenwissen mit Original-Link, OCR und Seitenangaben. „Nur ansehen“ bleibt ohne Vault-Ablage.',
+      profile.ai.source_notes, (checked) => patch({ ai: { source_notes: checked } })),
+    toggle('Separates Vision-Modell verwenden', 'Nur falls installiert: alle Bild-/Scanseiten nacheinander auswerten, dann zum Chatmodell wechseln. Kein paralleles Laden; spätere Bildwerkzeuge verwenden das Chatmodell.',
+      profile.ai.separate_vision, (checked) => patch({ ai: { separate_vision: checked } })),
+    field('Optionales Vision-Modell', 'Wird nicht automatisch installiert. Ohne verfügbares Vision-Modell nutzt die App das Chatmodell, sofern dieses Bilder unterstützt.',
+      h('select', { class: 'input', value: profile.ollama.vision_model, 'aria-label': 'Optionales Vision-Modell',
+        onchange: (event) => patch({ ollama: { vision_model: event.target.value } }) },
+        ...[...new Set([profile.ollama.vision_model, ...models.filter(m => !/embed/i.test(m.name)).map(m => m.name)])].filter(Boolean).map(name =>
+          h('option', { value: name, selected: name === profile.ollama.vision_model,
+            text: name + (models.some(m => m.name === name) ? '' : ' (nicht installiert)') })))),
     field('System-Anweisung', 'Gilt für jeden neuen Chat.',
       h('textarea', {
         class: 'textarea', rows: 4,

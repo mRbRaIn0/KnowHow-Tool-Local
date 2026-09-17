@@ -88,7 +88,7 @@ def test_thinking_only_has_visible_status_and_no_empty_fallback_file(memory, mon
     monkeypatch.setattr(chat, 'hybrid_search', AsyncMock(return_value={}))
     async def run():
         work = db.create_chat('Work', 'local', 'vault')
-        response = await chat.send_message(work['id'], chat.MessageRequest(content='Erstelle eine Notiz über Test.'))
+        response = await chat.send_message(work['id'], chat.MessageRequest(preview_writes=False, content='Erstelle eine Notiz über Test.'))
         events = [json.loads(item[6:].strip()) async for item in response.body_iterator]
         assert events[-1]['type'] == 'done'
         assert 'keine abschließende Antwort' in events[-1]['content']
@@ -120,7 +120,7 @@ def test_followup_receives_saved_source_notes_and_interruption_status(memory, mo
         attachments.mark_used(work['id'], ['image.png'])
         db.add_message(work['id'], 'user', 'Erfasse diesen Screenshot.')
         db.add_message(work['id'], 'assistant', 'Antwort unterbrochen. Arbeitsnotizen gespeichert.')
-        response = await chat.send_message(work['id'], chat.MessageRequest(content='Was war die Kennung?'))
+        response = await chat.send_message(work['id'], chat.MessageRequest(preview_writes=False, content='Was war die Kennung?'))
         events = [item async for item in response.body_iterator]
         assert events
         assert 'ZX-813' in json.dumps(captured)
@@ -151,7 +151,7 @@ def test_cancel_after_tool_keeps_confirmed_action(memory, monkeypatch):
     monkeypatch.setattr(chat, 'hybrid_search', AsyncMock(return_value={}))
     async def run():
         work = db.create_chat('Work', 'local', 'vault')
-        response = await chat.send_message(work['id'], chat.MessageRequest(content='Erstelle eine Notiz.'))
+        response = await chat.send_message(work['id'], chat.MessageRequest(preview_writes=False, content='Erstelle eine Notiz.'))
         with pytest.raises(asyncio.CancelledError):
             async for _ in response.body_iterator:
                 pass

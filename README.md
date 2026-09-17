@@ -1,4 +1,4 @@
-# KnowHow Tool · V1.2
+# KnowHow Tool · V1.3
 
 Lokale Wissens-KI für Windows von **mRbRaIn0**. Sammle Informationen, Bilder und
 Dokumente in einem eigenen Wissensordner und frage ihre Inhalte mit Quellen ab.
@@ -6,7 +6,44 @@ Die KI läuft über Ollama auf deinem Rechner; Notizen bleiben normale
 Markdown-Dateien, die du auch mit Obsidian bearbeiten kannst.
 
 [Windows-Release](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
-· [KI-Verhalten](KI.md) · [Release V1.2](docs/RELEASE-V1.2.md)
+· [KI-Verhalten](KI.md) · [Release V1.3](docs/RELEASE-V1.3.md)
+
+## Neu in V1.3
+
+- Reine Ablagebefehle wie „Datei schnell ablegen“ oder „Lege die Dateien in
+  "Projekt/Dateien" ab“ werden ohne Modellaufruf und ohne Inhaltsanalyse ausgeführt.
+  Ohne Ziel wird der konfigurierte Anhangordner verwendet. Aufträge mit
+  Zusammenfassung, Notiz oder inhaltlicher Einsortierung laufen weiter über die KI.
+- Gleiche Dateinamen werden automatisch nummeriert: `image.png`, `image1.png`,
+  `image2.png`. Das gilt auch für Uploads und neu erstellte Notizen.
+- Kürzere Arbeitsanweisungen, kompakte frühere KI-Antworten und ein
+  gebündeltes Aktualisieren der Vault-Übersicht vermeiden unnötige Arbeit.
+- Die KI erhält eine feste Markdown-/Obsidian-Syntaxreferenz aus dem Code.
+  Eigene Gestaltungsregeln gehören weiterhin in `00 Inhalt.md` im Vault.
+  Community-Plugins werden nicht vorausgesetzt; die App-Vorschau unterstützt
+  nicht sämtliche Darstellungen von Obsidian.
+- **Gezielter Kontext:** Genannte Dateien und Ordner begrenzen Suche und
+  Lesezugriffe. Pfade mit Leerzeichen in Anführungszeichen oder `[[WikiLinks]]`
+  nennen. Ohne Ziel lädt der Arbeitschat keinen allgemeinen Vault-Kontext.
+  „Im gesamten Vault“ erweitert den Umfang ausdrücklich. Wissensfragen ohne
+  Pfadangabe suchen weiterhin im freigegebenen Wissen.
+- **Informationen erhalten:** Alle eingegebenen Sachinformationen bleiben im
+  Arbeitskontext. Die KI soll sie sinnvoll gliedern und ergänzen; unbekannte
+  Fakten bleiben als offen markiert. Bei zu großem Kontext stoppt sie mit einem
+  Hinweis, statt alte Nutzerangaben still zu entfernen.
+- **Schreibvorschau:** Notizinhalt, Diff, Quellenlinks und Zielpfad vor dem
+  Speichern prüfen. Übernehmen, Anpassen oder den Auftrag abbrechen.
+- **Rückgängig:** Der letzte Vault-Auftrag lässt sich in der Kontextspalte
+  zurücknehmen, einschließlich Notizinhalten, verschobenen Dateien und Links.
+  Neuere externe Änderungen verhindern eine überschreibende Rücknahme.
+- **Bildwissen speichern:** OCR und Bildbeschreibungen werden mit Original-Link
+  und erkannten Seitenangaben unter `91 Quellenwissen` suchbar abgelegt.
+  Vorschau und Quellenablage lassen sich in den Einstellungen und pro Nachricht
+  ausschalten. „Nur ansehen“ legt keine Bildquelle im Vault ab.
+- **Optionales Vision-Modell:** In den KI-Einstellungen kann ein installiertes
+  `qwen3-vl:8b` aktiviert werden. Es bearbeitet den gesamten Bild-/Scanblock,
+  wird entladen und übergibt einmal an das Chatmodell. Spätere Bildwerkzeuge
+  verwenden das bildfähige Chatmodell. Standardmäßig bleibt diese Option aus.
 
 ## Zwei Bereiche für dein Wissen
 
@@ -49,11 +86,11 @@ Weitere Funktionen:
    ollama pull qwen3-vl:8b
    ```
 
-   In der App steht Thinking beim Standardmodell an. Du kannst es neben der Eingabe
-   ein- und ausschalten. Die Einrichtung braucht Internet; der spätere Betrieb kann
+   Neue Profile starten mit Thinking aus für schnellere Antworten. Du kannst es
+   neben der Eingabe einschalten; bestehende Einstellungen bleiben erhalten. Die Einrichtung braucht Internet; der spätere Betrieb kann
    offline erfolgen.
 
-2. **Release entpacken.** Lade `KnowHow-Tool-v1.2-Windows.zip` aus den
+2. **Release entpacken.** Lade `KnowHow-Tool-v1.3-Windows.zip` aus den
    [Releases](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
    und entpacke es in einen beschreibbaren lokalen Ordner, beispielsweise
    `%LOCALAPPDATA%/KnowHow-Tool`. Chats liegen im Ordner `data` **neben** der EXE.
@@ -89,7 +126,7 @@ App neue und geänderte Textdokumente mit dem Index ab.
 - Die EXE ist nicht digital signiert. Auf verwalteten Geräten muss ihre
   Ausführung den geltenden IT-Richtlinien entsprechen.
 - Bis zu 50 Anhänge je Eingabe, 40 MB je Datei und 400 MB je Chat.
-  Für gescannte PDFs werden bis zu acht Seiten je Dokument ausgewertet.
+  PDF-Seiten werden einzeln ausgewertet und zwischengespeichert.
 - Fehlende Embeddings verhindern die Stichwortsuche nicht. Bildauswertung
   benötigt ein Modell mit Vision-Unterstützung.
 - KI-Antworten können Fehler enthalten. Prüfe wichtige Angaben anhand der
@@ -142,7 +179,7 @@ Uploads, Wissensordner oder Modelle.
 
 ## Aus dem Quellcode starten
 
-Für die Entwicklung benötigst du Python; V1.2 wurde mit Python 3.12 geprüft.
+Für die Entwicklung benötigst du Python; V1.3 wurde mit Python 3.12 geprüft.
 `start.bat` richtet die lokale `.venv` mit den festgelegten Abhängigkeiten ein
 und startet die Anwendung. Alternativ nach der Einrichtung:
 
@@ -168,8 +205,9 @@ Der Build erzeugt `dist/KnowHow Tool.exe`, das Release-ZIP und
 zusammengestellt und mitgeliefert. Für reproduzierbare Ergebnisse eine frische
 Umgebung mit `requirements.txt` und `requirements-build.txt` verwenden.
 
-V1.2: 86 automatisierte Python-Tests sowie JavaScript-Prüfungen bestanden.
-Details und Grenzen stehen in den [Release-Notizen](docs/RELEASE-V1.2.md).
+V1.3: 109 automatisierte Python-Tests bestanden. Zusätzliche Build- und
+Startprüfungen stehen im Release-Bericht.
+Details und Grenzen stehen in den [Release-Notizen](docs/RELEASE-V1.3.md).
 
 Die vorherige V1.1 wurde mit automatisierten Tests, einem echten lokalen Bild-/DOCX-Workflow
 und einem Starttest der portablen EXE geprüft. Umfang und wiederholbare

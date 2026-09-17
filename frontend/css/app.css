@@ -859,3 +859,15 @@ mark { background: var(--accent-quiet); color: var(--accent); border-radius: 2px
 .composer__side { flex-basis: 100%; justify-content: flex-start; flex-wrap: wrap; }
 .composer__model { width: 220px; max-width: 100%; min-height: 32px; }
 .composer__think { min-height: 32px; }
+/* Vault-Aufträge: prüfbare Änderungen, editierbarer Entwurf und Rücknahme. */
+.composer__side { flex-wrap: wrap; }
+.composer__option { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: .8rem; cursor: pointer; }
+.write-preview { margin: 14px 0; display: grid; gap: 12px; min-width: 0; }
+.write-preview h3 { margin: 0; }
+.write-preview__diff { max-height: 330px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: .8rem/1.5 Consolas, monospace; background: var(--bg); padding: 12px; }
+.write-preview__diff span { display: block; }
+.write-preview__diff .diff-add { background: color-mix(in srgb, #14864b 14%, transparent); }
+.write-preview__diff .diff-remove { background: color-mix(in srgb, #b74444 14%, transparent); }
+.write-preview__editor { font: .85rem/1.5 Consolas, monospace; min-height: 220px; resize: vertical; }
+.write-preview__actions .btn { min-height: 44px; }
+.write-preview [hidden] { display: none; }

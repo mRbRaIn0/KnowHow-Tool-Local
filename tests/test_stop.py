@@ -42,7 +42,7 @@ def test_stop_closes_live_ollama_connection_and_persists_status(tmp_path, monkey
         monkeypatch.setattr(chat, 'current_ollama', lambda profile=None: client)
         work = db.create_chat('Stop', 'fake', 'ask')
         async def consume():
-            response = await chat.send_message(work['id'], chat.MessageRequest(content='Hello'))
+            response = await chat.send_message(work['id'], chat.MessageRequest(preview_writes=False, content='Hello'))
             async for _ in response.body_iterator:
                 pass
         task = asyncio.create_task(consume())

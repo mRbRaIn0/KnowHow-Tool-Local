@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .config import DATA_DIR
-from .vault import IMAGE_EXT, is_supported, kind_for
+from .vault import IMAGE_EXT, create_unique_file, is_supported, kind_for
 
 log = logging.getLogger(__name__)
 
@@ -100,14 +100,8 @@ def store(chat_id: str, filename: str, data: bytes) -> Dict[str, Any]:
     if sum(f.stat().st_size for f in existing) + len(data) > MAX_TOTAL_BYTES:
         raise AttachmentError("Die Anhänge dieses Chats sind zusammen zu groß.")
 
-    target = folder / safe_filename(filename)
-    stem, suffix, counter = target.stem, target.suffix, 2
-    while target.exists():
-        target = folder / f"{stem} {counter}{suffix}"
-        counter += 1
-
-    target.write_bytes(data)
-    return describe(target)
+    relative = create_unique_file(folder, safe_filename(filename), lambda stream: stream.write(data))
+    return describe(folder / relative)
 
 
 def describe(path: Path) -> Dict[str, Any]:

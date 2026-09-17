@@ -53,6 +53,7 @@ def test_request_selection_and_direct_action(tmp_path, monkeypatch):
     monkeypatch.setattr(chat.attachments, 'listing', lambda *_: [])
     monkeypatch.setattr(chat, 'hybrid_search', AsyncMock(return_value={}))
     async def send(chat_id, **body):
+        body.setdefault('preview_writes', False)
         response = await chat.send_message(chat_id, chat.MessageRequest(**body))
         return [json.loads(item.removeprefix('data: ').strip()) async for item in response.body_iterator]
     try:
@@ -71,7 +72,8 @@ def test_request_selection_and_direct_action(tmp_path, monkeypatch):
         assert events[-1]['changed_files'] == ['qwen359b.md']
         (tmp_path / 'qwen359b.md').write_text('Keep me', encoding='utf-8')
         events = asyncio.run(send(work['id'], content=prompt))
-        assert 'existiert bereits' in events[-1]['content']
+        assert 'qwen359b1.md' in events[-1]['content']
+        assert (tmp_path / 'qwen359b1.md').exists()
         assert (tmp_path / 'qwen359b.md').read_text(encoding='utf-8') == 'Keep me'
     finally:
         db.close()

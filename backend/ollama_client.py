@@ -121,6 +121,16 @@ class OllamaClient:
             _CAPABILITIES[key] = (await self.show(model)).get("capabilities", [])
         return _CAPABILITIES[key]
 
+    async def unload(self, model: str) -> None:
+        """Explizit entladen, bevor die App auf ein anderes großes Modell wechselt."""
+        try:
+            async with self._client() as client:
+                response = await client.post('/api/generate', json={
+                    'model': model, 'keep_alive': 0, 'stream': False})
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise self._connection_error(exc) from exc
+
     async def chat_stream(
         self,
         model: str,

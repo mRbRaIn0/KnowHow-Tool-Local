@@ -13,13 +13,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..deps import current_db, current_ollama, current_profile
+from ..deps import current_db, current_ollama, current_profile, current_vault
 from ..ollama_client import OllamaError
 from .. import attachments, chat_runs
 from ..knowledge_worker import knowledge_worker
 from contextlib import aclosing
 from ..attachment_analysis import analyse_attachments as _auswerten
 from ..note_templates import list_templates, select_template, template_instruction
+from ..markdown_knowledge import MARKDOWN_INSTRUCTIONS
 from ..knowledge import context_for_prompt, hybrid_search
 from ..tools import (
     ATTACHMENT_TOOLS, BASE_INSTRUCTIONS, EDIT_TOOLS, TOOL_DEFINITIONS, WRITING_TOOLS,
@@ -27,7 +28,12 @@ from ..tools import (
 )
 from ..vault import IMAGE_EXT, VaultError, require_root
 from ..vault_guide import ensure_vault_guide, guide_context
-from ..workflow import analyse_request, simple_root_note
+from ..workflow import analyse_request, simple_attachment_archive, simple_root_note
+from ..vault_actions import VaultAction, active_action, vault_lock, last_action, undo_last, vault_io
+from ..write_preview import pending as pending_previews, reviewed_call, PreviewCancelled
+from ..vision_batch import VisionBatch, model_lock
+from ..source_notes import save_source_note, has_visual_content
+from ..context_focus import VaultFocus, resolve_focus
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chats", tags=["chat"])
@@ -88,6 +94,55 @@ class MessageRequest(BaseModel):
     model: Optional[str] = None
     thinking: Optional[bool] = None
     use_rag: bool = True
+    preview_writes: Optional[bool] = None
+    source_notes: Optional[bool] = None
+
+
+class PreviewDecision(BaseModel):
+    accept: bool
+    path: Optional[str] = None
+    content: Optional[str] = None
+
+
+@router.get('/vault/last-action')
+async def last_vault_action():
+    profile = current_profile()
+    root = current_vault(profile)
+    record = await asyncio.to_thread(last_action, root, current_db(profile).path.parent)
+    return {'available': bool(record), 'busy': vault_lock(root).locked(),
+            'paths': list(record[1]['entries']) if record else []}
+
+
+@router.post('/vault/undo')
+async def undo_vault_action():
+    profile = current_profile()
+    root = current_vault(profile)
+    try:
+        result = await vault_io(undo_last, root, current_db(profile).path.parent)
+    except (ValueError, OSError, VaultError) as exc:
+        raise HTTPException(409, {'message': str(exc), 'kind': 'undo_conflict'}) from exc
+    if result.get('undone'):
+        database = current_db(profile)
+        if database.get_chat(result['chat_id']):
+            database.add_message(result['chat_id'], 'assistant',
+                'Der letzte Vault-Auftrag wurde rückgängig gemacht. Zurückgesetzte Dateien: '
+                + ', '.join(result['paths']))
+    return result
+
+
+@router.get('/{chat_id}/preview')
+async def get_preview(chat_id: str):
+    item = pending_previews.get((current_profile().id, chat_id))
+    return {'preview': item['preview'].draft if item else None}
+
+
+@router.post('/{chat_id}/preview/{preview_id}')
+async def decide_preview(chat_id: str, preview_id: str, request: PreviewDecision):
+    item = pending_previews.get((current_profile().id, chat_id))
+    if not item or item['preview'].draft['id'] != preview_id or item['future'].done():
+        raise HTTPException(409, 'Diese Vorschau ist nicht mehr aktuell.')
+    item['future'].set_result(request.model_dump())
+    return {'accepted': request.accept}
 
 
 @router.get("")
@@ -203,9 +258,18 @@ async def stop_message(chat_id: str):
 
 @router.post("/{chat_id}/message")
 async def send_message(chat_id: str, request: MessageRequest) -> StreamingResponse:
-    key = (current_profile().id, chat_id)
+    profile = current_profile()
+    key = (profile.id, chat_id)
     if key in chat_runs.runs:
         raise HTTPException(409, "Dieser Chat antwortet noch.")
+    work = current_db(profile).get_chat(chat_id)
+    try:
+        root = require_root(profile.vault_path)
+    except VaultError:
+        root = None
+    action_lock = vault_lock(root) if root and work and work.get('purpose') != 'ask' else None
+    if action_lock and not action_lock.acquire(blocking=False):
+        raise HTTPException(409, 'Ein anderer Auftrag bearbeitet diesen Vault bereits.')
     run = chat_runs.Run(task=asyncio.current_task())
     chat_runs.runs[key] = run
     def finish():
@@ -215,18 +279,49 @@ async def send_message(chat_id: str, request: MessageRequest) -> StreamingRespon
     try:
         response = await _prepare_message(chat_id, request)
     except BaseException:
+        if action_lock:
+            action_lock.release()
         finish()
         raise
     original = response.body_iterator
+    action = getattr(response, '_vault_action', None)
     async def tracked():
         run.task = asyncio.current_task()
+        token = active_action.set(action)
+        model_key = getattr(response, '_model_key', None)
+        inference_lock = model_lock(model_key) if model_key else None
+        inference_acquired = False
         try:
+            if inference_lock:
+                while not inference_lock.acquire(blocking=False):
+                    await asyncio.sleep(0.1)
+                inference_acquired = True
             if not run.cancelled:
                 async with aclosing(original):
                     async for item in original:
                         yield item
+        except PreviewCancelled as exc:
+            database = response._database
+            try:
+                result = await vault_io(action.rollback) if action else {'paths': []}
+                text = str(exc) + (' Bereits ausgeführte Dateiänderungen wurden zurückgenommen.' if result['paths'] else '')
+            except (ValueError, OSError, VaultError) as conflict:
+                text = f'{exc} Rücknahme nicht möglich: {conflict}. Bereits ausgeführte Änderungen bleiben erhalten.'
+            rows = database.list_messages(chat_id)
+            if rows and rows[-1]['role'] == 'assistant':
+                database.update_message(rows[-1]['id'], content=text, sources=[])
+            yield _sse({'type': 'error', 'kind': 'preview_cancelled', 'message': text})
         finally:
-            finish()
+            try:
+                if action:
+                    await vault_io(action.finish)
+            finally:
+                active_action.reset(token)
+                if action_lock:
+                    action_lock.release()
+                if inference_acquired:
+                    inference_lock.release()
+                finish()
     response.body_iterator = tracked()
     return response
 
@@ -257,10 +352,21 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
     # Schreib-Sicherheitsnetz bereit. Werkzeugdefinitionen bekommt das Modell
     # weiterhin nur, wenn es sie laut Ollama wirklich unterstützt.
     direct_path = simple_root_note(request.content) if not question_mode else None
-    if request.attachments or (direct_path and await asyncio.to_thread(attachments.pending, chat_id)):
+    vorhandene_anhaenge = [] if question_mode else await asyncio.to_thread(attachments.pending, chat_id)
+    direct_archive = simple_attachment_archive(request.content) if vorhandene_anhaenge else None
+    archive_command = re.split('["„]', request.content, maxsplit=1)[0]
+    if direct_archive is not None and (
+        (len(vorhandene_anhaenge) > 1 and re.search(r"\b(?:datei|anhang|bild|upload)\b", archive_command, re.I))
+        or (re.search(r"\b(?:bild|bilder)\b", archive_command, re.I)
+            and any(item.get("kind") != "image" for item in vorhandene_anhaenge))
+    ):
+        # Keine Teilmenge erraten: z.B. "das Bild" bei mehreren Anhängen.
+        direct_archive = None
+    if request.attachments or vorhandene_anhaenge:
         direct_path = None
+    direct = bool(direct_path) or direct_archive is not None
     try:
-        capabilities = [] if direct_path else await client.capabilities(model)
+        capabilities = [] if direct else await client.capabilities(model)
     except OllamaError as exc:
         raise HTTPException(exc.status, {"message": exc.message, "kind": exc.kind}) from exc
     root: Optional[Path] = None
@@ -268,22 +374,17 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         root = require_root(profile.vault_path)
     except VaultError:
         root = None
-    if direct_path and root is None:
+    if direct and root is None:
         raise HTTPException(409, {"message": "Bitte zuerst einen erreichbaren Vault auswählen.", "kind": "no_vault"})
     vault_guide = ""
-    if root is not None and not question_mode and not direct_path:
+    if root is not None and not question_mode and not direct:
         try:
-            await asyncio.to_thread(ensure_vault_guide, root, True)
             vault_guide = await asyncio.to_thread(guide_context, root)
         except OSError as exc:
             log.warning("00 Inhalt konnte nicht geladen werden: %s", exc)
     # Nur die noch nicht verarbeiteten Anhänge gehören zu dieser Eingabe.
     # Früher angehängte Dateien bleiben über die Werkzeuge erreichbar, sobald
     # sie ausdrücklich erwähnt werden — sie drängen sich aber nicht mehr auf.
-    vorhandene_anhaenge = (
-        [] if question_mode
-        else await asyncio.to_thread(attachments.pending, chat_id)
-    )
     alle_anhaenge = (
         [] if question_mode
         else await asyncio.to_thread(attachments.listing, chat_id)
@@ -297,19 +398,39 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
     if resume:
         task_content = next((text for text in reversed(prior_user_messages)
                              if not re.fullmatch(r"\s*(?:bitte\s+)?(?:weiter|fortsetzen|mach weiter|mache weiter)[.!]?\s*", text, re.I)), request.content)
+    focus = await asyncio.to_thread(resolve_focus, root, task_content, question_mode) if root and not direct else None
+    if focus and focus.paths == () and re.search(r'\b(?:dort|darin|dazu|dieser\s+(?:notiz|datei|ordner))\b', task_content, re.I):
+        for previous_text in reversed(prior_user_messages):
+            previous_focus = await asyncio.to_thread(resolve_focus, root, previous_text)
+            if previous_focus.paths or previous_focus.ambiguous:
+                focus = previous_focus
+                break
+        if focus.paths == ():
+            for previous_answer in reversed(database.list_messages(chat_id)):
+                if previous_answer['role'] != 'assistant':
+                    continue
+                if 'rückgängig gemacht' in previous_answer['content']:
+                    break
+                paths = list(dict.fromkeys(
+                    path for step in previous_answer.get('sources') or [] if step.get('ok')
+                    for key, path in (step.get('result') or {}).items()
+                    if key in {'erstellt', 'ergaenzt', 'bearbeitet'} and isinstance(path, str)))
+                if paths:
+                    focus = VaultFocus(tuple(paths)) if len(paths) == 1 else VaultFocus((), ('Letzte Notizen: ' + ', '.join(paths),))
+                    break
     requirements = analyse_request(
         task_content,
         (item["name"] for item in vorhandene_anhaenge),
         prior_user_messages,
     )
     selected_template = None
-    if root is not None and not question_mode and requirements.note_write and not direct_path:
+    if root is not None and not question_mode and requirements.note_write and not direct:
         available = await asyncio.to_thread(
             list_templates, root, profile.vault.templates_dir
         )
         selected_template = select_template(request.content, available)
 
-    async def vision(prompt: str, image_b64: str) -> str:
+    async def vision_for(vision_model, vision_capabilities, prompt: str, image_b64: str) -> str:
         """Ein einzelnes Bild ansehen — eigener Aufruf, damit auch viele
         Bilder nacheinander verarbeitet werden können, ohne den Kontext zu sprengen."""
         teile: List[str] = []
@@ -318,10 +439,10 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             reason = ""
             current = []
             async for chunk in client.chat_stream(
-                model, messages,
+                vision_model, messages,
                 options={"temperature": 0.2, "num_ctx": profile.ai.num_ctx,
                          "num_predict": max(2048, min(8192, profile.ai.num_ctx // 2))},
-                think=False if "thinking" in capabilities else None,
+                think=False if "thinking" in vision_capabilities else None,
             ):
                 text = (chunk.get("message") or {}).get("content")
                 if text:
@@ -341,6 +462,13 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         raise attachments.AnalysisIncomplete(
             "Bildauswertung ohne vollständigen Abschluss; Teilergebnis gespeichert.", "\n".join(teile))
 
+    async def vision(prompt, image_b64):
+        return await vision_for(model, capabilities, prompt, image_b64)
+
+    batch_vision = VisionBatch(client, model, profile.ollama.vision_model,
+                              profile.ai.separate_vision,
+                              vision if 'vision' in capabilities else None, vision_for)
+
     runner = ToolRunner(
         root,
         chat_id=chat_id,
@@ -350,6 +478,9 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         allow_full_rewrite=requirements.allow_full_rewrite,
         batch_edit_operations=requirements.batch_edit_operations,
         allow_file_organization=requirements.organize_vault_files,
+        defer_guide=True,
+        preview_writes=profile.ai.preview_writes if request.preview_writes is None else request.preview_writes,
+        focus=focus,
     ) if root and not question_mode else None
 
     if resume and runner:
@@ -364,7 +495,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     runner.note_files.append(path)
                 if result.get("bearbeitet"):
                     runner.edited_notes.append(result["bearbeitet"])
-                if step.get("tool") == "notiz_lesen" and result.get("pfad"):
+                if step.get("tool") == "notiz_lesen" and result.get("pfad") and not result.get('gekuerzt'):
                     runner.read_notes.append(result["pfad"])
 
     tools = None
@@ -414,19 +545,31 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
     if question_mode:
         system_prompt = _question_system_prompt(profile.ai.system_prompt)
     else:
-        overview = await asyncio.to_thread(vault_overview, root) if root and not direct_path else ""
+        overview = ""  # Kein globaler Ordnerindex im Modellkontext.
         system_prompt = _system_prompt(
             profile.ai.system_prompt,
             root,
             overview,
             vault_guide,
             "\n\n".join(filter(None, (
-                requirements.contract(), template_instruction(selected_template)
+                requirements.contract(), template_instruction(selected_template),
+                focus.instruction() if focus else ''
             ))),
         )
+    if question_mode and focus and focus.paths is not None:
+        system_prompt += '\n\n' + focus.instruction()
     # Kein Hinweistext mehr noetig: Die Inhalte werden unten vorab ausgewertet
     # und direkt in den Verlauf gestellt.
-    history = _build_history(database, chat_id, system_prompt)
+    history_error = ""
+    try:
+        history = _build_history(database, chat_id, system_prompt,
+                                 max_chars=max(6000, profile.ai.num_ctx * 2),
+                                 preserve_user_inputs=not question_mode,
+                                 focus=focus if not question_mode else None) if not direct else []
+    except UserInputContextTooLarge as exc:
+        history, history_error = [], str(exc)
+    if focus and focus.ambiguous:
+        history_error = focus.instruction() + '. Es wurden keine neuen Dateiaktionen ausgeführt.'
     # Ausgewertete Anhänge brauchen Platz im Kontextfenster.
     num_ctx = profile.ai.num_ctx
     if vorhandene_anhaenge:
@@ -452,7 +595,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
 
         assistant = database.add_message(chat_id, "assistant", "", model=model)
         yield _sse({"type": "start", "message_id": assistant["id"], "model": model,
-                    "thinking": think, "execution": "direct" if direct_path else "model"})
+                    "thinking": think, "execution": "direct" if direct else "model"})
 
         content_parts: List[str] = []
         thinking_parts: List[str] = []
@@ -481,7 +624,48 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             return text
 
         rag_result: Dict[str, Any] = {}
-        use_knowledge = (question_mode or request.use_rag) and not direct_path
+        if history_error:
+            content_parts.append(history_error)
+            completed = True
+            content = persist()
+            yield _sse({"type": "error", "message": content, "kind": "context_full"})
+            return
+        if direct_archive is not None and runner:
+            try:
+                for item in vorhandene_anhaenge:
+                    arguments = {"name": item["name"], "zielordner": direct_archive}
+                    async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: runner.run('anhang_in_vault_ablegen', arguments)):
+                        if "preview" in reviewed:
+                            yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                        else:
+                            result = reviewed["result"]
+                    step = {"tool": "anhang_in_vault_ablegen", "arguments": arguments,
+                            "result": result, "writing": True, "ok": "fehler" not in result}
+                    steps.append(step)
+                    if step["ok"]:
+                        await asyncio.to_thread(attachments.mark_used, chat_id, [item["name"]])
+                        content_parts.append(f"Abgelegt: {result['einbetten_als']}\n")
+                    else:
+                        content_parts.append(f"Nicht abgelegt: {item['name']} — {result['fehler']}\n")
+                    persist()
+                    yield _sse({"type": "tool_result", **step})
+                completed = True
+            finally:
+                await vault_io(runner.refresh_guide)
+                persist()
+            yield _sse({"type": "done", "message_id": assistant["id"],
+                        "content": persist(), "steps": steps, "changed_files": runner.changed_files})
+            return
+
+        if runner and not direct:
+            try:
+                await vault_io(ensure_vault_guide, root, True, False)
+            except OSError as exc:
+                log.warning('00 Inhalt konnte nicht angelegt werden: %s', exc)
+
+        use_knowledge = (question_mode or request.use_rag) and not direct
+        if focus and focus.paths == ():
+            use_knowledge = False
         if requirements.requires_batch_edit or requirements.organize_vault_files:
             use_knowledge = False
         if root is not None and use_knowledge \
@@ -493,6 +677,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     profile.ollama.embed_model, profile.ai.rag_top_k,
                     excluded_dirs=(profile.vault.templates_dir,),
                     refresh=question_mode,
+                    focus=focus,
                 )
                 rag_context = context_for_prompt(rag_result)
                 if rag_context:
@@ -513,7 +698,10 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
 
         if alle_anhaenge:
             previous_cache = await asyncio.to_thread(attachments.load_cache, chat_id)
-            previous = [item for item in alle_anhaenge if item not in vorhandene_anhaenge]
+            single_followup = (len(alle_anhaenge) == 1 and focus and focus.paths == ()
+                               and re.search(r'\b(?:was war|darin|dort|weiter|dieses?\s+(?:bild|screenshot|datei))\b', request.content, re.I))
+            previous = [item for item in alle_anhaenge if item not in vorhandene_anhaenge
+                        and (item['name'].casefold() in task_content.casefold() or single_followup)]
             _append_to_latest_user(history, _anhang_kontext(previous, previous_cache))
 
         analysis_errors = []
@@ -521,10 +709,10 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         try:
             if vorhandene_anhaenge:
                 auswertung = {}
-                async for meldung in _auswerten(
+                async for meldung in _batch_analyse(_auswerten(
                     chat_id, vorhandene_anhaenge, request.content,
-                    vision if "vision" in capabilities else None, runner,
-                ):
+                    batch_vision if ('vision' in capabilities or profile.ai.separate_vision) else None, runner,
+                ), batch_vision):
                     if "fortschritt" in meldung:
                         progress = meldung["fortschritt"]
                         if progress.get("status") in ("saved", "cached", "partial"):
@@ -564,9 +752,32 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     "unvollstaendig": len(analysis_errors),
                     "abgelegt": not requirements.keep_out_of_vault,
                 })
+                if (runner and not requirements.keep_out_of_vault
+                        and (profile.ai.source_notes if request.source_notes is None else request.source_notes)):
+                    records = await asyncio.to_thread(attachments.load_analysis, chat_id)
+                    for item in vorhandene_anhaenge:
+                        name = item['name']
+                        record = records['progress'].get(name, {})
+                        if not has_visual_content(record):
+                            continue
+                        async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: vault_io(
+                                save_source_note, runner, name, records['items'].get(name, ''), record, database.path.parent)):
+                            if 'preview' in reviewed:
+                                yield _sse({'type': 'write_preview', 'preview': reviewed['preview']})
+                            elif reviewed['result']:
+                                result = reviewed['result']
+                                step = {'tool': 'bildwissen_speichern', 'arguments': {'name': name},
+                                        'result': result, 'writing': True, 'ok': 'fehler' not in result}
+                                steps.append(step)
+                                persist()
+                                yield _sse({'type': 'tool_result', **step})
+                                if result.get('quellennotiz'):
+                                    _append_to_latest_user(history, 'Bild-/Scanwissen bereits suchbar gespeichert: [[' + result['quellennotiz'] + ']].')
 
         except (asyncio.CancelledError, GeneratorExit):
             persist("Auswertung unterbrochen. Bereits gelesene Dateien und Seiten sind zwischengespeichert; beim Fortsetzen werden sie wiederverwendet.")
+            raise
+        except PreviewCancelled:
             raise
         except Exception as exc:
             content = persist(f"Auswertung konnte nicht abgeschlossen werden: {exc}")
@@ -595,12 +806,16 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         try:
             if direct_path and runner:
                 arguments = {"pfad": direct_path, "inhalt": f"# {Path(direct_path).stem}\n"}
-                result = await runner.run("notiz_erstellen", arguments)
+                async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: runner.run('notiz_erstellen', arguments)):
+                    if "preview" in reviewed:
+                        yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                    else:
+                        result = reviewed["result"]
                 step = {"tool": "notiz_erstellen", "arguments": arguments,
                         "result": result, "writing": True, "ok": "fehler" not in result}
                 steps.append(step)
                 yield _sse({"type": "tool_result", **step})
-                content_parts.append(result.get("fehler") or f"Datei erstellt: [[{direct_path}]]")
+                content_parts.append(result.get("fehler") or f"Datei erstellt: [[{result['erstellt']}]]")
                 content = persist()
                 completed = True
                 yield _sse({"type": "done", "message_id": assistant["id"],
@@ -614,12 +829,11 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     and (requirements.requires_batch_edit
                          or requirements.organize_vault_files)
                     and not requirements.archive_attachments):
-                automatic = await asyncio.to_thread(
-                    runner.finish_required_actions,
-                    requirements,
-                    request.content,
-                    "",
-                )
+                async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: vault_io(runner.finish_required_actions, requirements, request.content, '')):
+                    if "preview" in reviewed:
+                        yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                    else:
+                        automatic = reviewed["result"]
                 for step in automatic:
                     steps.append(step)
                     yield _sse({"type": "tool_result", **step})
@@ -701,12 +915,11 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                             continue
 
                         if missing:
-                            automatic = await asyncio.to_thread(
-                                runner.finish_required_actions,
-                                requirements,
-                                request.content,
-                                last_draft,
-                            )
+                            async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: vault_io(runner.finish_required_actions, requirements, request.content, last_draft)):
+                                if "preview" in reviewed:
+                                    yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                                else:
+                                    automatic = reviewed["result"]
                             for step in automatic:
                                 steps.append(step)
                                 yield _sse({"type": "tool_result", **step})
@@ -792,7 +1005,11 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     arguments = function.get("arguments") or {}
                     yield _sse({"type": "tool_start", "tool": name, "arguments": arguments})
 
-                    result = await runner.run(name, arguments)
+                    async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: runner.run(name, arguments)):
+                        if "preview" in reviewed:
+                            yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                        else:
+                            result = reviewed["result"]
                     step = {
                         "tool": name,
                         "arguments": arguments,
@@ -822,12 +1039,11 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
 
             if limit_reached:
                 if runner is not None and requirements.actionable:
-                    automatic = await asyncio.to_thread(
-                        runner.finish_required_actions,
-                        requirements,
-                        request.content,
-                        last_draft,
-                    )
+                    async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: vault_io(runner.finish_required_actions, requirements, request.content, last_draft)):
+                        if "preview" in reviewed:
+                            yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                        else:
+                            automatic = reviewed["result"]
                     for step in automatic:
                         steps.append(step)
                         yield _sse({"type": "tool_result", **step})
@@ -886,7 +1102,11 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             # Auch bei frei formulierten Aufträgen gilt: Wenn das Modell eine
             # Notiz und Anhänge geschrieben hat, darf kein echter Link fehlen.
             if runner is not None:
-                linked = await asyncio.to_thread(runner.ensure_attachment_links)
+                async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: vault_io(runner.ensure_attachment_links)):
+                    if "preview" in reviewed:
+                        yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                    else:
+                        linked = reviewed["result"]
                 if linked:
                     step = {
                         "tool": "dateien_verknuepfen", "arguments": {},
@@ -904,6 +1124,8 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             if not "".join(content_parts).strip():
                 content_parts.append(_work_status(runner, "Keine abschließende Modellantwort erhalten."))
             completed = True
+        except PreviewCancelled:
+            raise
         except OllamaError as exc:
             content = persist(f"Modellantwort unterbrochen: {exc.message}")
             saved = True
@@ -917,6 +1139,8 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             yield _sse({"type": "error", "message": content, "kind": "error"})
             return
         finally:
+            if runner:
+                await vault_io(runner.refresh_guide)
             # Greift nur bei echtem Abbruch — etwa wenn der Browser die
             # Verbindung trennt (Neuladen, Fenster geschlossen).
             if not completed:
@@ -933,8 +1157,12 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             "changed_files": runner.changed_files if runner else [],
         })
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    response = StreamingResponse(event_stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    response._vault_action = VaultAction(root, database.path.parent, chat_id) if runner else None
+    response._database = database
+    response._model_key = profile.ollama.base_url if not direct else None
+    return response
 
 
 
@@ -1015,7 +1243,7 @@ def _batch_confirmation(steps: List[dict]) -> str:
     changed = int(result.get("geaendert") or 0)
     unchanged = int(result.get("unveraendert") or 0)
     lines = [
-        f"Fertig. Alle {checked} Markdown-Dateien im Vault wurden geprüft.",
+        f"Fertig. Alle {checked} Markdown-Dateien im beauftragten Umfang wurden geprüft.",
         "",
         f"- Geändert: {changed}",
         f"- Unverändert: {unchanged}",
@@ -1177,6 +1405,7 @@ def _system_prompt(user_prompt: str, root: Optional[Path], overview: str = "",
     )
     if root is not None:
         teile.append(BASE_INSTRUCTIONS)
+        teile.append(MARKDOWN_INSTRUCTIONS)
         if vault_guide:
             teile.append(
                 "VERBINDLICHE VAULT-HAUPTDATEI '00 Inhalt.md':\n"
@@ -1217,8 +1446,27 @@ def _question_system_prompt(user_prompt: str) -> str:
     return "\n\n".join(teile)
 
 
+async def _batch_analyse(events, batch):
+    try:
+        async with aclosing(events):
+            async for event in events:
+                yield event
+    finally:
+        await batch.close()
+
+
+def _history_fields(value: Any, keys: set[str]) -> Dict[str, Any]:
+    # Auch fehlerhafte alte Modellaufrufe dürfen Folgefragen nicht blockieren.
+    return {k: v for k, v in value.items() if k in keys} if isinstance(value, dict) else {}
+
+
+class UserInputContextTooLarge(ValueError):
+    """Die Eingaben dürfen nicht stillschweigend aus dem Modellkontext fallen."""
+
+
 def _build_history(database, chat_id: str, system_prompt: str,
-                   attachment_note: str = "") -> List[Dict[str, Any]]:
+                   attachment_note: str = "", max_chars: int = 16000,
+                   preserve_user_inputs: bool = False, focus=None) -> List[Dict[str, Any]]:
     """Baut die Nachrichtenliste für Ollama inklusive Bildanhängen."""
     messages: List[Dict[str, Any]] = []
     if system_prompt.strip():
@@ -1227,6 +1475,23 @@ def _build_history(database, chat_id: str, system_prompt: str,
     for row in database.list_messages(chat_id):
         if row["role"] == "assistant" and not row["content"].strip() and not row.get("sources"):
             continue  # leere Platzhalter (z. B. abgebrochene Antworten) überspringen
+        if row['role'] == 'assistant' and focus and focus.paths is not None:
+            relevant = []
+            for step in row.get('sources') or []:
+                result = step.get('result') or {}
+                paths = [value for key, value in result.items()
+                         if key in {'pfad', 'erstellt', 'bearbeitet', 'ergaenzt', 'abgelegt', 'quellennotiz'}
+                         and isinstance(value, str)]
+                if any(focus.allows(path) for path in paths):
+                    relevant.append(step)
+            # Prior assistant source excerpts are not current user information.
+            if not relevant:
+                if 'rückgängig gemacht' in row['content']:
+                    messages.append({'role': 'assistant', 'content': 'Der letzte Vault-Auftrag wurde rückgängig gemacht.'})
+                elif 'Antwort unterbrochen' in row['content']:
+                    messages.append({'role': 'assistant', 'content': 'Antwort unterbrochen. Gespeicherte Arbeitsnotizen bei Bedarf gezielt laden.'})
+                continue
+            row = {**row, 'content': '', 'sources': relevant}
         message: Dict[str, Any] = {"role": row["role"], "content": row["content"]}
         images, extra_text = [], []
         for attachment in row.get("attachments") or []:
@@ -1240,11 +1505,63 @@ def _build_history(database, chat_id: str, system_prompt: str,
         if extra_text:
             message["content"] = message["content"] + "".join(extra_text)
         if row["role"] == "assistant" and row.get("sources"):
-            verified = [{"tool": step.get("tool"), "arguments": step.get("arguments"),
-                         "result": step.get("result"), "ok": step.get("ok")}
+            # Alte vollständige Schreibargumente/Leseresultate vervielfachten den
+            # Kontext. Pfade und Status genügen; Inhalte bei Bedarf frisch lesen.
+            verified = [{"tool": step.get("tool"),
+                         "arguments": _history_fields(step.get("arguments"), {"pfad", "name", "zielordner"}),
+                         "result": _history_fields(step.get("result"),
+                                     {"erstellt", "ergaenzt", "bearbeitet", "abgelegt",
+                                      "pfad", "original", "einbetten_als", "fehler"}),
+                         "ok": step.get("ok")}
                         for step in row["sources"]]
             message["content"] += "\n\nGespeicherter Arbeitsstand (bereits ausgeführt; nicht erneut ausführen):\n" + json.dumps(verified, ensure_ascii=False)
         messages.append(message)
+
+    if preserve_user_inputs:
+        input_chars = sum(len(m["content"]) for m in messages if m["role"] == "user")
+        if input_chars > max_chars:
+            raise UserInputContextTooLarge(
+                f"Die Nutzereingaben dieses Chats umfassen {input_chars:,} Zeichen und "
+                f"überschreiten das aktuelle Eingabebudget von {max_chars:,} Zeichen. "
+                "Alle Eingaben bleiben vollständig im Chat gespeichert. Es wurden keine "
+                "Nutzerangaben stillschweigend weggelassen und keine neuen Dateiaktionen ausgeführt. "
+                "Erhöhe die Kontextgröße in den KI-Einstellungen und sende anschließend ‚weiter‘. "
+                "Falls das Modell keinen größeren Kontext unterstützt, müssen wir den Auftrag "
+                "ausdrücklich in kleinere Teile aufteilen."
+            )
+        remaining = max_chars - input_chars
+        keep = set()
+        for index in range(len(messages) - 1, -1, -1):
+            message = messages[index]
+            if message["role"] != "assistant":
+                keep.add(index)
+            elif len(message["content"]) <= remaining:
+                remaining -= len(message["content"])
+                keep.add(index)
+            else:
+                marker = "\n\nGespeicherter Arbeitsstand (bereits ausgeführt; nicht erneut ausführen):\n"
+                start = message["content"].find(marker)
+                if start >= 0:
+                    compact = message["content"][start:].strip()
+                    if len(compact) <= remaining:
+                        message["content"] = compact
+                        remaining -= len(compact)
+                        keep.add(index)
+        messages = [message for index, message in enumerate(messages) if index in keep]
+
+    # Neueste vollständige Dialogrunden behalten. Der aktuelle Auftrag wird nie
+    # gekürzt, die Datenbank behält weiterhin den gesamten Verlauf.
+    first = 1 if messages and messages[0]["role"] == "system" else 0
+    total = 0
+    cut = len(messages)
+    for index in range(len(messages) - 1, first - 1, -1):
+        total += len(messages[index].get("content", ""))
+        if total > max_chars and cut < len(messages):
+            break
+        if messages[index]["role"] == "user":
+            cut = index
+    if not preserve_user_inputs and cut > first and cut < len(messages):
+        messages = messages[:first] + messages[cut:]
 
     # Der Hinweis auf Anhänge gehört an die letzte Nutzernachricht: dort wirkt er
     # zuverlässig. Im gespeicherten Chatverlauf taucht er nicht auf.

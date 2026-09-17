@@ -109,21 +109,35 @@ class SearchIndex:
                     conn.execute(f"INSERT INTO {table}(rowid,embedding) VALUES(?,?)",
                                  (cursor.lastrowid, blob))
 
-    def search(self, query, vector=None, model="", namespaces=("vault",), limit=8):
+    def search(self, query, vector=None, model="", namespaces=("vault",), limit=8, paths=None):
         """Only candidate rows cross into Python; no arbitrary corpus cutoff."""
         words = re.findall(r"\w+", query, re.UNICODE)
         if not words or not namespaces:
             return []
         match = " OR ".join('"' + word + '"*' for word in words[:30])
         placeholders = ",".join("?" for _ in namespaces)
+        if paths == () or paths == []:
+            return []
+        scope_sql, scope_args = '', []
+        if paths is not None:
+            clauses = []
+            for path in paths:
+                if path.endswith('/'):
+                    # Literal prefix; % and _ in filenames are never SQL wildcards.
+                    clauses.append('substr(lower(c.path),1,length(?))=lower(?)')
+                    scope_args.extend([path, path])
+                else:
+                    clauses.append('lower(c.path)=lower(?)')
+                    scope_args.append(path)
+            scope_sql = ' AND (' + ' OR '.join(clauses) + ')'
         candidates = {}
         with self.db._lock:
             conn = self.db._conn
             lexical = conn.execute(
                 f"SELECT c.*,bm25(search_fts,2,1) rank FROM search_fts "
                 f"JOIN search_chunks c ON c.id=search_fts.rowid "
-                f"WHERE search_fts MATCH ? AND c.namespace IN ({placeholders}) ORDER BY rank LIMIT ?",
-                (match, *namespaces, max(40, limit * 8))).fetchall()
+                f"WHERE search_fts MATCH ? AND c.namespace IN ({placeholders}){scope_sql} ORDER BY rank LIMIT ?",
+                (match, *namespaces, *scope_args, max(40, limit * 8))).fetchall()
             for rank, row in enumerate(lexical):
                 candidates[row["id"]] = [1 / (30 + rank), dict(row)]
             if vector and self.vec and all(math.isfinite(x) for x in vector):
@@ -133,9 +147,9 @@ class SearchIndex:
                     rows = conn.execute(
                         f"SELECT c.*,v.distance FROM {table} v JOIN search_chunks c ON c.id=v.rowid "
                         f"WHERE v.embedding MATCH ? AND k=? AND v.rowid IN "
-                        f"(SELECT id FROM search_chunks WHERE namespace IN ({placeholders})) "
+                        f"(SELECT c.id FROM search_chunks c WHERE c.namespace IN ({placeholders}){scope_sql}) "
                         "ORDER BY v.distance",
-                        (struct.pack(f"{len(vector)}f", *vector), max(40, limit * 8), *namespaces)).fetchall()
+                        (struct.pack(f"{len(vector)}f", *vector), max(40, limit * 8), *namespaces, *scope_args)).fetchall()
                     for rank, row in enumerate(rows):
                         # Ollama vectors are unit-normalized; L2 1.2 corresponds to cosine .28.
                         if row["distance"] > 1.2:

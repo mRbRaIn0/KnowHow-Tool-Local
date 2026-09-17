@@ -71,6 +71,7 @@ export function send(chatId, content, selection = {}) {
       else if (event.type === 'thinking') run.thinking += event.delta;
       else if (event.type === 'content') run.content += event.delta;
       else if (event.type === 'tool_result') run.steps.push(event);
+      else if (event.type === 'write_preview') run.preview = event.preview;
       else if (event.type === 'attachment_progress') {
         run.progress = event;
         if (event.text || event.error) run.analyses[event.name] = event;
@@ -92,6 +93,7 @@ export function send(chatId, content, selection = {}) {
       finish(chatId);
     },
     onDone: () => {
+      emit('vault:action-finished', { chatId });
       if (runs.get(chatId) === run && !run.stopping) {
         emit('chat:event', { chatId, run, event: { type: 'error', message: 'Die Verbindung endete ohne Abschluss. Gespeicherte Arbeitsnotizen bleiben im Chat verfügbar.' } });
         finish(chatId);

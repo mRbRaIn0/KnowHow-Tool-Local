@@ -45,7 +45,7 @@ async def _lock(database: Database):
 
 async def sync_index(root: Path, database: Database, client: Optional[OllamaClient],
                      embed_model: str = "", force: bool = False,
-                     excluded_dirs: Iterable[str] = ()) -> Dict[str, Any]:
+                     excluded_dirs: Iterable[str] = (), focus=None) -> Dict[str, Any]:
     """Indiziert nur neue/geänderte Dateien und entfernt verschwundene Pfade."""
     async with _lock(database):
         excluded_dirs = tuple(excluded_dirs)
@@ -63,7 +63,7 @@ async def sync_index(root: Path, database: Database, client: Optional[OllamaClie
             value.strip().strip("/\\").replace("\\", "/").lower() + "/"
             for value in excluded_dirs if value and value.strip().strip("/\\")
         )
-        for path in await asyncio.to_thread(lambda: list(iter_files(root))):
+        for path in await asyncio.to_thread(lambda: list(focus.files(root) if focus else iter_files(root))):
             if path.suffix.lower() not in INDEX_EXT:
                 continue
             try:
@@ -75,7 +75,7 @@ async def sync_index(root: Path, database: Database, client: Optional[OllamaClie
             except OSError:
                 continue
 
-        removed = sorted(set(manifest).difference(current))
+        removed = sorted(path for path in set(manifest).difference(current) if focus is None or focus.allows(path))
         await asyncio.to_thread(database.delete_knowledge_paths, removed)
         changed = [
             (rel, *values) for rel, values in current.items()
@@ -109,7 +109,8 @@ async def sync_index(root: Path, database: Database, client: Optional[OllamaClie
 
         stats = await asyncio.to_thread(database.knowledge_stats)
         database.set_meta("search_vault_scope", scope)
-        database.set_meta("search_vault_model", embed_model)
+        if focus is None or focus.paths is None:
+            database.set_meta("search_vault_model", embed_model)
         return {
             **stats,
             "indexed": indexed,
@@ -123,15 +124,15 @@ async def sync_index(root: Path, database: Database, client: Optional[OllamaClie
 async def hybrid_search(root: Path, database: Database, query: str,
                         client: Optional[OllamaClient], embed_model: str,
                         limit: int = 6, excluded_dirs: Iterable[str] = (),
-                        refresh: bool = True) -> Dict[str, Any]:
+                        refresh: bool = True, focus=None) -> Dict[str, Any]:
     """Kombiniert lokale Worttreffer mit Kosinusähnlichkeit der Ollama-Vektoren."""
-    status = (await sync_index(root, database, client, embed_model, excluded_dirs=excluded_dirs)
+    status = (await sync_index(root, database, client, embed_model, excluded_dirs=excluded_dirs, focus=focus)
               if refresh and root else await asyncio.to_thread(database.knowledge_stats))
 
     vault_allowed = root and database.get_meta("search_vault_scope") == _scope(root, excluded_dirs)
     namespaces = ("vault",) if vault_allowed else ()
     lexical = await asyncio.to_thread(database.search.search, query, [], embed_model,
-                                      namespaces, max(1, min(limit, 20)))
+                                      namespaces, max(1, min(limit, 20)), focus.paths if focus else None)
     # Exact words, phrases and paths already have useful local hits. Avoid
     # loading an embedding model (and potentially evicting the chat model).
     needle = query.strip().casefold()
@@ -148,7 +149,7 @@ async def hybrid_search(root: Path, database: Database, query: str,
             log.info("Semantische Anfrage fällt auf Stichwortsuche zurück: %s", str(exc))
 
     results = (await asyncio.to_thread(database.search.search, query, query_vector, embed_model,
-                                       namespaces, max(1, min(limit, 20)))
+                                       namespaces, max(1, min(limit, 20)), focus.paths if focus else None)
                if query_vector else lexical)
     return {
         "query": query, "results": results, "index": status,

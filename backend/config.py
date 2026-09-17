@@ -71,10 +71,12 @@ def build_fingerprint() -> str:
 
 DEFAULT_SYSTEM_PROMPT = (
     "Du bist ein lokaler Obsidian-Wissensarchitekt und Datenversteher. "
-    "Antworte präzise und standardmäßig auf Deutsch. Verdichte Informationen "
+    "Antworte präzise und standardmäßig auf Deutsch. Strukturiere alle Nutzerinformationen ohne Informationsverlust "
     "zu vollständigen, verknüpften und direkt nutzbaren Wissensnotizen."
 )
 LEGACY_SYSTEM_PROMPTS = {
+    "Du bist ein lokaler Obsidian-Wissensarchitekt und Datenversteher. Antworte präzise und standardmäßig auf Deutsch. Verdichte Informationen zu vollständigen, verknüpften und direkt nutzbaren Wissensnotizen.",
+    "Du bist ein lokaler Obsidian-Wissensarchitekt und Datenversteher. Verdichte Informationen zu vollständigen, verknüpften und direkt nutzbaren Wissensnotizen. Antworte standardmäßig auf Deutsch.",
     "Du bist eine lokale Wissensassistenz. Antworte präzise, sachlich und standardmäßig auf Deutsch.",
     "Du bist eine lokale Wissensassistenz. Antworte präzise, sachlich und standardmäßig auf Deutsch. Nutze Markdown für Struktur, Tabellen und Code.",
 }
@@ -84,13 +86,17 @@ class OllamaSettings(BaseModel):
     base_url: str = "http://127.0.0.1:11434"
     chat_model: str = "qwen3.5:9b"
     embed_model: str = "nomic-embed-text"
+    vision_model: str = "qwen3-vl:8b"
 
 
 class AISettings(BaseModel):
     temperature: float = 0.7
     num_ctx: int = 8192
     rag_top_k: int = 6
-    thinking: bool = True
+    thinking: bool = False
+    preview_writes: bool = True
+    source_notes: bool = True
+    separate_vision: bool = False
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
 

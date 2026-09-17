@@ -166,7 +166,7 @@ class ActionRequirements:
             }
             operations = "; ".join(labels[item] for item in self.batch_edit_operations)
             actions.append(
-                "alle Markdown-Dateien des Vaults vollständig prüfen und in einem "
+                "alle Markdown-Dateien im ausdrücklich genannten Umfang vollständig prüfen und in einem "
                 f"Stapel bearbeiten: {operations}. Nutze dafür "
                 "markdown_dateien_bereinigen; Suchtreffer sind keine Begrenzung des Umfangs"
             )
@@ -211,8 +211,8 @@ class ActionRequirements:
             "links": "Die gespeicherten Anhänge sind noch nicht mit ihren echten Pfaden verlinkt.",
             "edit": "Die ausdrücklich verlangte Änderung wurde noch nicht an der bestehenden Notiz ausgeführt.",
             "batch_edit": (
-                "Die globale Änderung wurde noch nicht über alle Markdown-Dateien "
-                "des Vaults ausgeführt. Einzelne bearbeitete Dateien genügen nicht."
+                "Die Änderung wurde noch nicht über alle Markdown-Dateien "
+                "des genannten Umfangs ausgeführt. Einzelne bearbeitete Dateien genügen nicht."
             ),
             "organize_files": (
                 "Die ausdrücklich verlangte Dateiordnung wurde noch nicht ausgeführt. "
@@ -332,3 +332,30 @@ def simple_root_note(prompt: str) -> str | None:
     if not name or name.casefold() in {'00 inhalt', '00 inhalt.md'}:
         return None
     return name if name.lower().endswith('.md') else name + '.md'
+
+
+def simple_attachment_archive(prompt: str) -> str | None:
+    """Nur vollständige reine Ablagebefehle; '' bedeutet Standard-Anhangordner.
+
+    Ein explizites Ziel muss in Anführungszeichen stehen. Inhaltliche Aufträge,
+    Negationen, einzelne ausgewählte Dateien und Folgeaktionen gehen ans Modell.
+    """
+    if re.fullmatch(
+        r'\s*(?:bitte\s+)?(?:die\s+|alle\s+)?(?:datei(?:en)?|anhänge|bilder)'
+        r'\s+(?:(?:einfach|nur|schnell)\s+)*(?:ablegen|speichern|kopieren)\s*[.!]?\s*',
+        prompt, re.IGNORECASE,
+    ):
+        return ""
+    match = re.fullmatch(
+        r'\s*(?:bitte\s+)?(?:speichere?|kopiere?|archiviere?|lege?)\s+'
+        r'(?:(?:die|das|den|diese|dieses|diesen|alle|meine)\s+)?(?:angehängte[nrs]?\s+)?'
+        r'(?:datei(?:en)?|anhänge|anhang|bilder|bild|uploads?)'
+        r'(?:\s+(?:bitte|einfach|nur|schnell))*'
+        r'(?:\s+ab)?'
+        r'(?:\s+(?:im|in den|in dem|in)\s+(?:vault|wissensordner)|'
+        r'\s+(?:im|in den|in dem|in)\s+(?:ordner\s+)?["„]([^"“\n]+)["“])?'
+        r'(?:\s+ab)?\s*[.!]?\s*', prompt, re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return match.group(1).strip() if match.group(1) is not None else ""

@@ -90,22 +90,23 @@ beauftragt werden, zum Beispiel: „Ändere in 00 Inhalt Emojis auf Ja“ oder
 """
 
 
-def ensure_vault_guide(root: Path, create: bool = True) -> Dict[str, object]:
+def ensure_vault_guide(root: Path, create: bool = True, refresh: bool = True) -> Dict[str, object]:
     """Legt die Hauptseite einmalig an und aktualisiert nur ihren Indexblock."""
     target = safe_join(root, GUIDE_PATH)
-    index = build_vault_index(root)
 
     if not target.exists():
         if not create:
             return {"path": GUIDE_PATH, "exists": False, "created": False, "updated": False}
-        result = write_text_file(root, GUIDE_PATH, _default_content(index), overwrite=False)
+        result = write_text_file(root, GUIDE_PATH, _default_content(build_vault_index(root)), overwrite=False)
         return {"path": result["path"], "exists": True, "created": True, "updated": False}
 
     if not target.is_file():
         return {"path": GUIDE_PATH, "exists": False, "created": False, "updated": False}
 
     current = target.read_text(encoding="utf-8", errors="replace")
-    updated = _replace_index(current, index)
+    if not refresh or INDEX_START not in current or INDEX_END not in current:
+        return {"path": GUIDE_PATH, "exists": True, "created": False, "updated": False}
+    updated = _replace_index(current, build_vault_index(root))
     changed = updated != current
     if changed:
         write_text_file(root, GUIDE_PATH, updated, overwrite=True)
@@ -114,12 +115,17 @@ def ensure_vault_guide(root: Path, create: bool = True) -> Dict[str, object]:
 
 def guide_context(root: Path) -> str:
     """Liest die vom Nutzer gestaltbare Hauptseite als maßgeblichen KI-Kontext."""
-    result = ensure_vault_guide(root, create=False)
-    if not result["exists"]:
+    target = safe_join(root, GUIDE_PATH)
+    if not target.is_file():
         return ""
-    content = safe_join(root, GUIDE_PATH).read_text(encoding="utf-8", errors="replace")
+    content = target.read_text(encoding="utf-8", errors="replace")
+    # Der vollständige Index bleibt im Vault. Im Prompt reichen Regeln und
+    # kompakte Ordnerübersicht; Regeln NACH dem Index bleiben ebenfalls sichtbar.
+    start, end = content.find(INDEX_START), content.find(INDEX_END)
+    if 0 <= start < end:
+        content = content[:start] + content[end + len(INDEX_END):]
     if len(content) > MAX_CONTEXT_CHARS:
-        content = content[:MAX_CONTEXT_CHARS] + "\n\n[Weitere Indexeinträge gekürzt]"
+        content = content[:MAX_CONTEXT_CHARS] + "\n\n[Weitere Regeln bei Bedarf mit notiz_lesen laden]"
     return content
 
 

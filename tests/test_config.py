@@ -54,7 +54,7 @@ class ConfigUpgradeTests(unittest.TestCase):
             self.assertEqual(loaded.server.port, 0)
             self.assertEqual(loaded.profiles[0].vault.path, str(root / "Vault"))
             self.assertEqual(loaded.profiles[0].ollama.chat_model, "qwen3.5:9b")
-            self.assertTrue(loaded.profiles[0].ai.thinking)
+            self.assertFalse(loaded.profiles[0].ai.thinking)
             self.assertTrue((root / config.DATA_HINT_NAME).is_file())
 
     def test_existing_profile_database_is_reused_after_config_reload(self) -> None:

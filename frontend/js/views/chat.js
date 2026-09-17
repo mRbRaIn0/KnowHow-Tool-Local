@@ -11,6 +11,7 @@ import {
 } from '../util.js';
 import { markdownOptions, navigate, on, refreshFileIndex, refreshStatus, state, vaultReady } from '../store.js';
 import * as stream from '../chatstream.js';
+import { writePreview, undoButton } from '../vaultactions.js';
 
 let elements = {};
 let settingsPending = false;
@@ -114,6 +115,7 @@ export async function mount({ route, el }) {
   unsubscribe.push(on('chat:event', onStreamEvent));
   renderContext(data.chat, data.messages.length);
   unsubscribe.push(on('status', () => renderContext(data.chat, data.messages.length)));
+  unsubscribe.push(on('vault:action-finished', () => renderContext(data.chat, data.messages.length)));
   scrollToEnd();
   if (!run) elements.input.focus();
 }
@@ -131,6 +133,7 @@ function restoreRunning(run) {
   node.querySelector('.msg__who').textContent = `${run.model} · ${run.execution === 'direct' ? 'Direktaktion' : run.thinkingEnabled ? 'Thinking an' : 'Thinking aus'}`;
   live = { node, caret, thinkingNode: node.querySelector('.msg__think') };
   for (const analysis of Object.values(run.analyses || {})) renderAnalysis(analysis);
+  if (run.preview) node._steps.append(writePreview(run.preview, run.chatId, () => { run.preview = null; }));
   setSending(true);
 }
 
@@ -761,7 +764,15 @@ function composerMeta() {
   elements.modelSelect = select;
   elements.thinkToggle = checkbox;
   elements.thinkLabel = think;
-  return h('div', { class: 'composer__side' }, select, think);
+  const controls = h('div', { class: 'composer__side' }, select, think);
+  if (activeMode.purpose === 'vault') {
+    elements.previewToggle = h('input', { type: 'checkbox', checked: state.status?.ai?.preview_writes !== false });
+    elements.sourceToggle = h('input', { type: 'checkbox', checked: state.status?.ai?.source_notes !== false });
+    controls.append(
+      h('label', { class: 'composer__option' }, elements.previewToggle, 'Schreibvorschau'),
+      h('label', { class: 'composer__option' }, elements.sourceToggle, 'Bildwissen speichern'));
+  }
+  return controls;
 }
 
 function fillModelSelect(select, status) {
@@ -1008,7 +1019,8 @@ function send() {
   stream.send(
     state.activeChatId,
     content || 'Übernimm die angehängten Dateien in den Vault und dokumentiere ihren Inhalt.',
-    { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked },
+    { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked,
+      preview_writes: elements.previewToggle?.checked, source_notes: elements.sourceToggle?.checked },
   );
 }
 
@@ -1105,6 +1117,13 @@ function onStreamEvent({ chatId, event, run }) {
     live.pending = renderStep({ tool: event.tool, arguments: event.arguments, result: {} }, true);
     live.node._steps.append(live.pending);
     scrollToEnd();
+    return;
+  }
+
+  if (event.type === 'write_preview') {
+    const card = writePreview(event.preview, chatId, () => { run.preview = null; });
+    live.node._steps.append(card);
+    card.scrollIntoView({ block: 'start' });
     return;
   }
 
@@ -1242,5 +1261,6 @@ function renderContext(chat, messageCount = 0) {
       h('div', { class: 'row row--wrap' },
         h('button', { class: 'btn btn--sm', onclick: () => chat && renameChat(chat) }, icon('pencil'), 'Umbenennen'),
         h('button', { class: 'btn btn--sm btn--danger', onclick: () => chat && deleteChat(chat) }, icon('trash'), 'Löschen'))),
+    activeMode.purpose === 'vault' ? h('div', { class: 'ctx-block' }, undoButton()) : null,
   );
 }

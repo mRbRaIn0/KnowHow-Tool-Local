@@ -244,11 +244,14 @@ def write_text_file(root: Path, relative: str, content: str, overwrite: bool = T
         raise FileExistsError(to_relative(root, target))
     if target.is_dir():
         raise VaultError(f"Pfad ist ein Ordner: {relative}")
+    from .vault_actions import before_change, after_change
+    before_change(root, to_relative(root, target))
     target.parent.mkdir(parents=True, exist_ok=True)
     # Atomar schreiben, damit Obsidian nie eine halbe Datei sieht.
     tmp = target.with_name(target.name + ".tmp-lka")
     tmp.write_text(content, encoding="utf-8", newline="\n")
     tmp.replace(target)
+    after_change(root, to_relative(root, target))
     return {
         "path": to_relative(root, target),
         "name": target.name,
@@ -309,17 +312,42 @@ def delete_entry(root: Path, relative: str) -> dict:
 
 
 def unique_path(root: Path, relative: str) -> str:
-    """Freien Dateinamen finden: 'Notiz.md' -> 'Notiz 2.md' -> 'Notiz 3.md'."""
+    """Freien Dateinamen finden: 'image.png' -> 'image1.png' -> 'image2.png'."""
     target = safe_join(root, relative)
     if not target.exists():
         return to_relative(root, target)
     stem, suffix = target.stem, target.suffix
-    counter = 2
+    counter = 1
     while True:
-        candidate = target.with_name(f"{stem} {counter}{suffix}")
+        candidate = target.with_name(f"{stem}{counter}{suffix}")
         if not candidate.exists():
             return to_relative(root, candidate)
         counter += 1
+
+
+def create_unique_file(root: Path, relative: str, write, exact: bool = False) -> str:
+    """Exklusiv anlegen; auch konkurrierende Uploads überschreiben nichts."""
+    while True:
+        rel = relative if exact else unique_path(root, relative)
+        target = safe_join(root, rel)
+        from .vault_actions import before_change, after_change
+        before_change(root, rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            stream = target.open("xb")
+        except FileExistsError:
+            if exact:
+                raise
+            continue
+        try:
+            with stream:
+                write(stream)
+        except BaseException:
+            target.unlink(missing_ok=True)
+            after_change(root, rel)
+            raise
+        after_change(root, rel)
+        return rel
 
 
 def vault_stats(root: Path) -> dict:

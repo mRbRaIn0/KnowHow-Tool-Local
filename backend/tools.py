@@ -24,10 +24,11 @@ from .attachments import AttachmentError
 from .text_cache import read_search_text
 from .vault import (
     DOC_EXT, IGNORED_DIRS, IMAGE_EXT, VaultError, iter_files, kind_for, list_dir,
-    read_text_file, safe_join, to_relative, unique_path, write_text_file,
+    create_unique_file, read_text_file, safe_join, to_relative, unique_path, write_text_file,
 )
 from .vault_guide import ensure_file_subfolder_rule, ensure_vault_guide
 from .workflow import ActionRequirements, note_title
+from .vault_actions import vault_io
 
 log = logging.getLogger(__name__)
 
@@ -45,9 +46,8 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             "name": "vault_suchen",
             "description": (
                 "Durchsucht den Wissens-Vault des Nutzers nach Notizen, Dokumenten "
-                "und Dateien. IMMER zuerst benutzen, wenn nach vorhandenem Wissen, "
-                "früheren Notizen oder Themen gefragt wird, oder bevor eine neue "
-                "Notiz angelegt wird."
+                "und Dateien. Einmal gezielt suchen, wenn relevantes Wissen oder der "
+                "Zielpfad noch unbekannt sind. Bereits bereitgestellte Treffer nutzen."
             ),
             "parameters": {
                 "type": "object",
@@ -75,7 +75,9 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                     "pfad": {
                         "type": "string",
                         "description": "Vault-relativer Pfad, z. B. '01 Wissen/Azure/Azure Arc.md'.",
-                    }
+                    },
+                    "offset": {"type": "integer", "description": "Zeichenposition, zuerst 0; bei langen Dateien naechster_offset verwenden."},
+                    "limit": {"type": "integer", "description": "Maximal 6000 Zeichen pro Aufruf."}
                 },
                 "required": ["pfad"],
             },
@@ -380,8 +382,13 @@ class ToolRunner:
                  vision: Optional[Callable] = None, allow_edit: bool = False,
                  allow_full_rewrite: bool = False,
                  batch_edit_operations: Iterable[str] = (),
-                 allow_file_organization: bool = False):
+                 allow_file_organization: bool = False, defer_guide: bool = False,
+                 preview_writes: bool = False, focus=None):
         self.root = root
+        self.defer_guide = defer_guide
+        self.preview_writes = preview_writes
+        self.approved_previews = {}
+        self.focus = focus
         self.chat_id = chat_id
         self.attachment_dir = attachment_dir or "90 Anhänge"
         self.vision = vision            # async Rückruf für die Bildanalyse
@@ -399,12 +406,21 @@ class ToolRunner:
         self.changed_files: List[str] = []
         self.note_files: List[str] = []
         self.read_notes: List[str] = []
+        self.read_ranges = {}
         self.edited_notes: List[str] = []
         self.stored_attachments: Dict[str, Dict[str, str]] = {}
 
     def _changed(self, path: str) -> None:
         if path not in self.changed_files:
             self.changed_files.append(path)
+
+    def refresh_guide(self) -> None:
+        if self.changed_files:
+            ensure_vault_guide(self.root, create=False)
+
+    def _refresh_guide(self) -> None:
+        if not self.defer_guide:
+            self.refresh_guide()
 
     async def run(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Gibt immer ein Ergebnis zurück — Fehler werden dem Modell mitgeteilt."""
@@ -416,7 +432,7 @@ class ToolRunner:
             if inspect.iscoroutinefunction(handler):
                 return await handler(**_clean(arguments))
             # Dateizugriffe blockieren sonst den Event-Loop.
-            return await asyncio.to_thread(lambda: handler(**_clean(arguments)))
+            return await vault_io(lambda: handler(**_clean(arguments)))
         except (VaultError, AttachmentError) as exc:
             return {"fehler": str(exc)}
         except TypeError as exc:
@@ -433,7 +449,7 @@ class ToolRunner:
             return {"fehler": "Der Suchbegriff ist zu kurz."}
 
         treffer: List[Dict[str, Any]] = []
-        paths = sorted(iter_files(self.root), key=lambda path: (
+        paths = sorted(self.focus.files(self.root) if self.focus else iter_files(self.root), key=lambda path: (
             term not in to_relative(self.root, path).lower(),
             to_relative(self.root, path).lower(),
         ))
@@ -462,19 +478,34 @@ class ToolRunner:
             return {"treffer": [], "hinweis": f"Zu '{suchbegriff}' gibt es im Vault noch nichts."}
         return {"treffer": treffer, "anzahl": len(treffer)}
 
-    def _notiz_lesen(self, pfad: str = "", **_: Any) -> Dict[str, Any]:
+    def _notiz_lesen(self, pfad: str = "", offset: int = 0, limit: int = MAX_READ_CHARS, **_: Any) -> Dict[str, Any]:
+        if self.focus and not self.focus.allows(pfad) and pfad not in self.changed_files:
+            return {'fehler': 'Datei liegt außerhalb der erwähnten Ziele. Bitte den konkreten Pfad vom Nutzer nennen lassen.'}
         data = read_text_file(self.root, pfad)
-        if data["path"] not in self.read_notes:
-            self.read_notes.append(data["path"])
         inhalt = data["content"]
-        gekuerzt = len(inhalt) > MAX_READ_CHARS
+        offset, limit = max(0, int(offset)), max(1, min(int(limit), MAX_READ_CHARS))
+        end = min(len(inhalt), offset + limit)
+        gekuerzt = end < len(inhalt)
+        ranges = self.read_ranges.setdefault(data['path'], [])
+        ranges.append((offset, end))
+        covered = 0
+        for start, finish in sorted(ranges):
+            if start > covered:
+                break
+            covered = max(covered, finish)
+        if covered >= len(inhalt) and data['path'] not in self.read_notes:
+            self.read_notes.append(data['path'])
         return {
             "pfad": data["path"],
-            "inhalt": inhalt[:MAX_READ_CHARS],
+            "inhalt": inhalt[offset:end],
             "gekuerzt": gekuerzt,
+            "naechster_offset": end if gekuerzt else None,
+            "gesamtzeichen": len(inhalt),
         }
 
     def _ordner_auflisten(self, pfad: str = "", **_: Any) -> Dict[str, Any]:
+        if self.focus and not self.focus.allows(pfad):
+            return {'fehler': 'Ordner liegt außerhalb der erwähnten Ziele.', 'ziele': self.focus.paths or []}
         nodes = list_dir(self.root, pfad or "")
         return {
             "pfad": pfad or "(Vault-Wurzel)",
@@ -483,6 +514,31 @@ class ToolRunner:
         }
 
     # ------------------------------------------------------------ Schreiben
+
+    def _review_note(self, path: str, content: str, create: bool = False):
+        if not self.preview_writes:
+            return path, content
+        from .write_preview import PreviewNeeded
+        from .vault_actions import fingerprint
+        target_path = unique_path(self.root, path) if create else path
+        target = safe_join(self.root, target_path)
+        before = read_text_file(self.root, target_path)['content'] if target.is_file() else ''
+        preview = PreviewNeeded(target_path, before, content, create, fingerprint(target))
+        approved = self.approved_previews.get(preview.key)
+        if approved is None:
+            raise preview
+        chosen = safe_join(self.root, approved['path'])
+        if not create and approved['path'] != target_path:
+            raise VaultError('Das Ziel einer bestehenden Notiz darf in der Vorschau nicht wechseln.')
+        expected = approved['expected'] if approved['path'] == approved['original_path'] else None
+        if fingerprint(chosen) != expected:
+            raise VaultError('Das Vorschauziel wurde inzwischen verändert. Bitte erneut prüfen.')
+        if not approved['path'].lower().endswith('.md') or not approved['content'].strip():
+            raise VaultError('Die Vorschau braucht ein .md-Ziel und nichtleeren Inhalt.')
+        checked, errors = _canonical_vault_source_links(self.root, approved['content'])
+        if errors:
+            raise VaultError(_source_link_error(errors))
+        return approved['path'], checked
 
     def _notiz_erstellen(self, pfad: str = "", inhalt: str = "", **_: Any) -> Dict[str, Any]:
         inhalt = clean_generated_text(inhalt)
@@ -494,24 +550,22 @@ class ToolRunner:
         if not pfad.lower().endswith(".md"):
             pfad = f"{pfad}.md"
 
-        target = safe_join(self.root, pfad)
-        if target.exists():
-            return {
-                "fehler": f"'{pfad}' existiert bereits.",
-                "hinweis": "Nutze notiz_ergaenzen zum Erweitern oder wähle einen anderen Dateinamen.",
-            }
-
-        result = write_text_file(self.root, pfad, _normalise(inhalt), overwrite=False)
+        pfad, inhalt = self._review_note(pfad, _normalise(inhalt), create=True)
+        relative = create_unique_file(
+            self.root, pfad, lambda stream: stream.write(inhalt.encode("utf-8")), exact=self.preview_writes)
+        result = {"path": relative}
         self._changed(result["path"])
         if result["path"] not in self.note_files:
             self.note_files.append(result["path"])
         invalidate_overview(self.root)  # neuer Pfad soll in der Übersicht auftauchen
-        ensure_vault_guide(self.root, create=False)
+        self._refresh_guide()
         log.info("Modell hat Notiz angelegt: %s", result["path"])
         return {"erstellt": result["path"], "zeichen": len(inhalt)}
 
     def _notiz_ergaenzen(self, pfad: str = "", inhalt: str = "",
                          abschnitt: str = "", **_: Any) -> Dict[str, Any]:
+        if self.focus and not self.focus.allows(pfad) and pfad not in self.changed_files:
+            return {'fehler': 'Bestehende Notiz liegt außerhalb der erwähnten Ziele.'}
         inhalt = clean_generated_text(inhalt)
         inhalt, link_errors = _canonical_vault_source_links(self.root, inhalt)
         if link_errors:
@@ -528,6 +582,7 @@ class ToolRunner:
 
         bestehend = read_text_file(self.root, pfad)["content"]
         neu = _insert(bestehend, _normalise(inhalt), abschnitt)
+        pfad, neu = self._review_note(pfad, neu)
         result = write_text_file(self.root, pfad, neu, overwrite=True)
         self._changed(result["path"])
         if result["path"] not in self.note_files:
@@ -612,6 +667,7 @@ class ToolRunner:
 
         if neu.replace("\r\n", "\n") == bestehend.replace("\r\n", "\n"):
             return {"fehler": "Die vorgeschlagene Bearbeitung enthält keine Änderung."}
+        note_path, neu = self._review_note(note_path, neu)
         result = write_text_file(self.root, note_path, neu, overwrite=True)
         self._changed(result["path"])
         if result["path"] not in self.note_files:
@@ -638,6 +694,8 @@ class ToolRunner:
                     "Vault als Umfang nennen."
                 )
             }
+        if self.focus and self.focus.paths == ():
+            return {'fehler': 'Bitte den Zielordner oder ausdrücklich den gesamten Vault nennen.'}
 
         if isinstance(operationen, str):
             requested = {operationen}
@@ -654,7 +712,7 @@ class ToolRunner:
                 "erlaubt": list(self.batch_edit_operations),
             }
 
-        result = _batch_clean_markdown(self.root, selected)
+        result = _batch_clean_markdown(self.root, selected, self.focus)
         if "fehler" in result:
             return result
 
@@ -667,7 +725,7 @@ class ToolRunner:
             if path not in self.edited_notes:
                 self.edited_notes.append(path)
         invalidate_overview(self.root)
-        ensure_vault_guide(self.root, create=False)
+        self._refresh_guide()
         return {
             **result,
             "vollstaendig": self.batch_edit_done,
@@ -690,8 +748,10 @@ class ToolRunner:
         if (not folder or folder in {".", ".."}
                 or any(char in folder for char in '\\/:*?"<>|')):
             return {"fehler": f"Ungültiger Unterordner: {unterordner}"}
+        if self.focus and self.focus.paths == ():
+            return {'fehler': 'Bitte den Zielordner oder ausdrücklich den gesamten Vault nennen.'}
 
-        result = _organize_vault_files(self.root, folder)
+        result = _organize_vault_files(self.root, folder, self.focus)
         if "fehler" in result:
             return result
 
@@ -705,7 +765,7 @@ class ToolRunner:
             if path not in self.edited_notes:
                 self.edited_notes.append(path)
         invalidate_overview(self.root)
-        ensure_vault_guide(self.root, create=False)
+        self._refresh_guide()
         guide = ensure_file_subfolder_rule(self.root, folder)
         if guide.get("updated"):
             self._changed(str(guide["path"]))
@@ -754,28 +814,24 @@ class ToolRunner:
 
     def _anhang_in_vault_ablegen(self, name: str = "", zielordner: str = "",
                                  neuer_name: str = "", **_: Any) -> Dict[str, Any]:
+        if name in self.stored_attachments:
+            return self.stored_attachments[name]
         quelle = attachments.resolve(self.chat_id, name)
-        ordner = (zielordner or self.attachment_dir).strip().strip("/")
+        ordner = (zielordner or self.attachment_dir).strip()
 
         # Die Dateiendung kommt immer vom Original. Modelle schlagen sonst gern
         # ".md" vor, und ein PDF unter .md wäre im Vault unbrauchbar.
         stamm = Path(attachments.safe_filename(neuer_name.strip() or quelle.name)).stem
         dateiname = f"{stamm or quelle.stem}{quelle.suffix}"
 
-        ziel = safe_join(self.root, f"{ordner}/{dateiname}" if ordner else dateiname)
-        ziel.parent.mkdir(parents=True, exist_ok=True)
-
-        # Niemals etwas Bestehendes überschreiben.
-        stamm, endung, zaehler = ziel.stem, ziel.suffix, 2
-        while ziel.exists():
-            ziel = ziel.with_name(f"{stamm} {zaehler}{endung}")
-            zaehler += 1
-
-        shutil.copy2(quelle, ziel)
-        rel = to_relative(self.root, ziel)
+        with quelle.open("rb") as source:
+            rel = create_unique_file(
+                self.root, f"{ordner}/{dateiname}" if ordner else dateiname,
+                lambda stream: shutil.copyfileobj(source, stream))
+        ziel = safe_join(self.root, rel)
         self._changed(rel)
         invalidate_overview(self.root)
-        ensure_vault_guide(self.root, create=False)
+        self._refresh_guide()
         log.info("Anhang in den Vault übernommen: %s -> %s", quelle.name, rel)
 
         alias = quelle.name.replace("|", "-")
@@ -917,6 +973,7 @@ class ToolRunner:
             current, list(self.stored_attachments.values())
         )
         if corrected:
+            note_path, current = self._review_note(note_path, current)
             result = write_text_file(self.root, note_path, current, overwrite=True)
             self._changed(result["path"])
 
@@ -1034,6 +1091,10 @@ def _canonical_vault_source_links(root: Path, content: str) -> tuple[str, List[s
     mehrdeutige PDF-/Dokument-/Bildlinks werden nicht geschrieben.
     """
     source_ext = DOC_EXT | IMAGE_EXT
+    # Ohne Quellenlink ist kein vollständiger Vault-Scan nötig.
+    if not re.search(r"\[\[[^\]]+\.(?:" + "|".join(
+            re.escape(ext[1:]) for ext in source_ext) + r")(?=[#|\]])", content, re.I):
+        return content, []
     by_path: Dict[str, str] = {}
     by_name: Dict[str, List[str]] = {}
     for path in iter_files(root, kinds=("doc", "image")):
@@ -1095,9 +1156,9 @@ _EMOJI_RE = re.compile(
 )
 
 
-def _batch_clean_markdown(root: Path, operations: set[str]) -> Dict[str, Any]:
+def _batch_clean_markdown(root: Path, operations: set[str], focus=None) -> Dict[str, Any]:
     """Bereitet alle Änderungen vor und schreibt sie anschließend transaktional."""
-    notes = sorted(iter_files(root, kinds=("note",)), key=lambda item: str(item).casefold())
+    notes = sorted(focus.files(root, kinds=('note',)) if focus else iter_files(root, kinds=("note",)), key=lambda item: str(item).casefold())
     resolver = _build_link_resolver(root)
     prepared: List[tuple[str, str, str]] = []
     unresolved: List[Dict[str, str]] = []
@@ -1158,11 +1219,11 @@ def _batch_clean_markdown(root: Path, operations: set[str]) -> Dict[str, Any]:
     }
 
 
-def _organize_vault_files(root: Path, subfolder: str) -> Dict[str, Any]:
+def _organize_vault_files(root: Path, subfolder: str, focus=None) -> Dict[str, Any]:
     """Verschiebt thematische Binärquellen samt Linkanpassung transaktional."""
     notes = sorted(iter_files(root, kinds=("note",)), key=lambda item: str(item).casefold())
     sources = sorted(
-        iter_files(root, kinds=("doc", "image")),
+        focus.files(root, kinds=('doc', 'image')) if focus else iter_files(root, kinds=("doc", "image")),
         key=lambda item: str(item).casefold(),
     )
     note_parents = {str(path.parent).casefold() for path in notes}
@@ -1216,8 +1277,13 @@ def _organize_vault_files(root: Path, subfolder: str) -> Dict[str, Any]:
     written_notes: List[tuple[str, str]] = []
     try:
         for source, target, _, _ in moves:
+            from .vault_actions import before_change, after_change
+            before_change(root, to_relative(root, source))
+            before_change(root, to_relative(root, target))
             target.parent.mkdir(parents=True, exist_ok=True)
             source.replace(target)
+            after_change(root, to_relative(root, source))
+            after_change(root, to_relative(root, target))
             moved.append((source, target))
         for rel, original, updated in prepared_notes:
             write_text_file(root, rel, updated, overwrite=True)
@@ -1233,6 +1299,8 @@ def _organize_vault_files(root: Path, subfolder: str) -> Dict[str, Any]:
             try:
                 source.parent.mkdir(parents=True, exist_ok=True)
                 target.replace(source)
+                after_change(root, to_relative(root, source))
+                after_change(root, to_relative(root, target))
             except OSError as rollback_exc:
                 rollback_errors.append(f"{to_relative(root, target)}: {rollback_exc}")
         detail = (
@@ -1299,15 +1367,20 @@ def _rewrite_links_after_moves(
 def _outside_fences(content: str, transform: Callable[[str], str]) -> str:
     """Verändert normalen Markdown-Text, aber keine Inhalte in Codeblöcken."""
     lines = content.splitlines(keepends=True)
-    in_fence = False
+    fence_marker = ""
+    fence_length = 0
     out: List[str] = []
     for line in lines:
         stripped = line.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
+        fence = re.match(r"(`{3,}|~{3,})(.*)", stripped)
+        if fence and not fence_marker:
+            fence_marker, fence_length = fence[1][0], len(fence[1])
             out.append(line)
-        elif in_fence:
+        elif fence_marker:
             out.append(line)
+            if (fence and fence[1][0] == fence_marker and len(fence[1]) >= fence_length
+                    and not fence[2].strip()):
+                fence_marker = ""
         else:
             out.append(transform(line))
     return "".join(out)
@@ -1438,24 +1511,23 @@ def clean_generated_text(text: str) -> str:
     eigenständige pauschale Sätze wie „Diese Notiz basiert ausschließlich auf
     den angehängten PDFs und Bildern“.
     """
-    kept: List[str] = []
-    for line in (text or "").replace("\r\n", "\n").split("\n"):
-        plain = re.sub(r"^[\s>*_+\-]+|[\s*_]+$", "", line).strip().casefold()
-        is_note_claim = plain.startswith((
-            "diese notiz ", "die notiz ", "diese dokumentation ",
-            "die dokumentation ", "diese zusammenfassung ",
-        ))
-        is_basis_claim = any(word in plain for word in (
-            "basiert", "beruht", "stützt sich", "erstellt aus",
-        ))
-        mentions_inputs = any(word in plain for word in (
-            "angehäng", "bereitgestell", "hochgelad", "pdf", "bilder", "dateien",
-        ))
-        if is_note_claim and is_basis_claim and mentions_inputs:
-            continue
-        kept.append(line)
-    cleaned = "\n".join(kept)
-    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    generic = re.compile(
+        r"(?:diese|die) (?:notiz|dokumentation|zusammenfassung) "
+        r"(?:basiert|beruht) (?:ausschließlich |nur )?auf (?:den |der )?"
+        r"(?:angehängten|bereitgestellten|hochgeladenen) "
+        r"(?:pdfs?|bildern?|dateien|dokumenten|informationen)"
+        r"(?: und (?:pdfs?|bildern?|dateien|dokumenten|informationen))?[.!]?",
+        re.IGNORECASE,
+    )
+
+    def clean_line(line: str) -> str:
+        plain = line.strip().strip("*_ ")
+        # Nur eine vollständig generische Einzelzeile entfernen. Zusätzliche
+        # Aussagen, Zahlen, konkrete Quellen, Zitate und Code bleiben erhalten.
+        return "" if generic.fullmatch(plain) else line
+
+    return _outside_fences((text or "").replace("\r\n", "\n"), clean_line).strip()
+
 
 
 def _insert(bestehend: str, neu: str, abschnitt: str) -> str:
@@ -1623,36 +1695,16 @@ def _build_overview(root: Path, max_folders: int) -> str:
     )
 
 
-BASE_INSTRUCTIONS = """Du arbeitest direkt im persönlichen Wissens-Vault des Nutzers und hast dafür Werkzeuge.
-
-So arbeitest du:
-- Fragen nach vorhandenem Wissen ("Was habe ich zu X?", "Fasse meine Notizen zu Y zusammen") beantwortest du NIEMALS aus dem Gedächtnis. Rufe zuerst vault_suchen auf und antworte auf Basis der gefundenen Notizen. Nenne die Pfade der verwendeten Dateien.
-- Bittet der Nutzer um eine Notiz, Dokumentation oder Zusammenfassung, dann LEGST DU SIE AN — mit notiz_erstellen. Gib nicht nur Markdown im Chat aus und frage nicht erst um Erlaubnis. Suche vorher kurz, ob es zum Thema schon etwas gibt.
-- Soll etwas erweitert oder ergänzt werden: erst notiz_lesen, dann ZWINGEND notiz_ergaenzen mit dem fertigen Text. Nach dem Lesen aufzuhören und den Text nur im Chat zu zeigen ist falsch — die Änderung muss in der Datei landen.
-- Soll vorhandener Text, ein Abschnitt, die Struktur, Formatierung oder das Design ausdrücklich geändert werden: erst notiz_lesen, dann notiz_bearbeiten. Nutze den kleinsten passenden Modus: einzelne Stelle vor Abschnitt, Abschnitt vor vollständiger Neustrukturierung. Alles außerhalb des ausdrücklich verlangten Umfangs bleibt unverändert.
-- Nennt der Nutzer ausdrücklich alle Dateien, alle Notizen oder den gesamten Vault und verlangt das Entfernen von Emojis beziehungsweise die Korrektur relativer Links, nutze einmal markdown_dateien_bereinigen. Dieses Werkzeug prüft jede Markdown-Datei; die Treffer von vault_suchen begrenzen den Auftrag nicht. Eine einzige klare Nutzeranweisung ist die vollständige Freigabe — frage nicht für jede Datei erneut nach Bestätigung.
-- Verlangt der Nutzer, dass PDFs, Dokumente oder Bilder nicht neben Markdown-Dateien liegen, nutze dateien_in_unterordner_verschieben. Du kannst Vault-Dateien damit tatsächlich verschieben und alle Links automatisch aktualisieren. Behaupte niemals, dafür keinen Dateisystemzugriff zu haben.
-- Eine vollständige Neustrukturierung ist nur erlaubt, wenn der Nutzer sie ausdrücklich verlangt. Dabei bleiben YAML-Metadaten und sämtliche fachlichen Informationen erhalten; geändert werden Aufbau und Darstellung, nicht stillschweigend der Inhalt.
-- Wähle den Ablageort passend zur bestehenden Ordnerstruktur. Bist du unsicher, sieh mit ordner_auflisten nach.
-- Verweise zwischen Notizen setzt du als Obsidian-WikiLinks: [[Notizname]].
-- Ohne ausdrücklichen Änderungsauftrag überschreibst du nichts. Das Löschen ganzer Dateien ist nie möglich. Ein ausdrücklicher Auftrag wie „entferne Emojis/Text/Links“ ist dagegen bereits eine Freigabe zur inhaltlichen Bearbeitung und braucht keine zweite Bestätigung. Ergänzungen hängen Inhalt an; gezielte Bearbeitungen sind nur im freigegebenen Umfang möglich.
-
-Qualität einer Notiz:
-- Verstehe zuerst Ziel, Zielgruppe und vorhandene Informationen. Erzeuge dann eine eigenständige, sofort nutzbare Wissensseite statt eines Chat-Protokolls.
-- Nutze alle verlässlichen Angaben aus Vault und Anhängen. Verbessere unklare Beschreibungen, ergänze notwendige Erklärungen und ordne Zusammenhänge sinnvoll ein. Erfinde keine Fakten.
-- Kommt eine weitere Quelle hinzu, lies zuerst den vorhandenen Text und die neue Quelle. Prüfe, welche Aussagen übereinstimmen, sich ergänzen oder widersprechen. Vermeide Dopplungen, korrigiere bestehende Aussagen nur bei ausdrücklichem Änderungsauftrag und kennzeichne verbleibende Widersprüche samt Quelle transparent.
-- Schreibe keine pauschalen Herkunftssätze wie "Diese Notiz basiert ausschließlich auf den angehängten PDFs und Bildern". Belege stattdessen die konkreten Aussagen oder den Quellenabschnitt mit den tatsächlichen Vault-Links.
-- Wähle einen präzisen Titel, klare Überschriften, kurze Absätze, Listen, Tabellen oder Code nur dort, wo sie das Verständnis verbessern.
-- Vermeide Meta-Sätze wie "Hier ist die Notiz", leere Platzhalter und Wiederholungen. Der Dateiinhalt beginnt direkt mit der Notiz.
-- Prüfe vor dem Schreiben still: Ist der Text vollständig, fachlich schlüssig, gut auffindbar und mit passenden WikiLinks verbunden? Erst dann rufst du das Schreibwerkzeug auf.
-- Beende keine Antwort mit einer Ankündigung wie "Ich beginne", "Ich werde nun prüfen" oder "Ich lese zuerst". Eine Aufgabe ist erst fertig, wenn die angekündigten Werkzeuge ausgeführt wurden und das Ergebnis kontrolliert ist. Plane intern, arbeite vollständig und antworte danach mit dem Resultat.
-
-Angehängte Dateien:
-- Sind Dateien angehängt, arbeite mit ihnen, statt nach ihrem Inhalt zu fragen. Textdateien, PDFs und Quellcode liest du mit anhang_lesen, Bilder betrachtest du mit bild_ansehen.
-- Bei vielen Anhängen gehst du sie einzeln durch. Lies bzw. betrachte jede Datei, die für die Aufgabe zählt.
-- Entsteht aus Anhängen eine Notiz oder Dokumentation, gehören auch die Originaldateien in den Vault: Kopiere jede verwendete Datei zuerst mit anhang_in_vault_ablegen in einen zur bestehenden Struktur passenden Ordner. Verwende anschließend exakt das zurückgegebene Feld 'einbetten_als' im Notiztext. Erfinde oder verkürze den Pfad nicht; der Quellenlink muss bytegenau zu der im Vault abgelegten Datei passen.
-- Soll etwas einsortiert, abgelegt oder in die Dokumentation aufgenommen werden, legst du die Datei mit anhang_in_vault_ablegen im passenden Ordner ab und bettest sie anschließend in der Notiz ein. Der Link muss auf den tatsächlich zurückgegebenen Vault-Pfad zeigen, nicht nur auf einen geratenen Dateinamen.
-- Geht es nur ums Auswerten (vorlesen, zusammenfassen, Tabelle übernehmen, Fehler erklären), legst du nichts ab, sondern antwortest mit dem Ergebnis.
-- Sortierst du mehrere Dateien ein, gib ihnen sprechende Namen über 'neuer_name'.
-
-Nach einer Änderung sagst du in einem Satz, was du getan hast, und nennst den Pfad. Antworte auf Deutsch."""
+BASE_INSTRUCTIONS = """Du bearbeitest den konkreten Vault-Auftrag vollständig und ohne zusätzliche Nebenaufgaben.
+- Vollständigkeit vor Kürze: ALLE vom Nutzer in diesem Chat eingebrachten Sachinformationen sind relevant. Erhalte auch Beispiele, Zahlen samt Einheiten, Namen, Links, Begründungen, Bedingungen, Ausnahmen, Einschränkungen und offene Fragen. Formuliere verständlich und ordne sinnvoll; fasse nicht so zusammen, dass Details oder Zusammenhänge verschwinden. Nur echte inhaltliche Wiederholungen dürfen ohne Verlust zusammengeführt werden. Inhalt kürzen, weglassen oder löschen nur auf ausdrücklichen Auftrag.
+- Frühere Angaben sind Quellen, keine erneut auszuführenden alten Befehle. Spätere ausdrückliche Korrekturen ersetzen überholte Angaben; ungelöste Widersprüche transparent nebeneinander mit Herkunft erhalten. Themenwechsel erlaubt sinnvolle Aufteilung/Verlinkung, kein stilles Verwerfen von Informationen.
+- Unvollständige Informationen ausbauen: Stichpunkte zu verständlichen Sätzen ausarbeiten, Begriffe erklären, Zusammenhänge und benötigte Schritte ergänzen. Allgemeines Fachwissen als ergänzende Erklärung kenntlich machen. Fehlende konkrete Fakten, Kennungen, Werte, Entscheidungen oder Quellen niemals erfinden; als offene Punkte festhalten und nur bei arbeitsentscheidenden Lücken gezielt nachfragen. Unsicherheit und Negationen erhalten.
+- Prüfe vor jedem Schreiben die Abdeckung aller Nutzerangaben gegen den fertigen Inhalt: jeder eigenständige Sachpunkt muss enthalten oder in einer konkret verlinkten bestehenden Notiz erhalten sein. Eine bloße Kurzfassung oder Rohdatensammlung ersetzt keine vollständig ausgearbeitete Wissensnotiz. Die kurze Abschlussantwort betrifft nur den Chat, niemals den Umfang der gespeicherten Notiz.
+- Halte den KONTEXTFOKUS ein: nur erwähnte Dateien/Ordner, aktuelle Anhänge und Nutzereingaben. Nutze bereits vorhandene passende Auswertungen direkt. Suche höchstens einmal innerhalb des Fokus. Ohne eindeutiges notwendiges Ziel nur dessen Pfad erfragen. Keine allgemeine Vault-Erkundung oder wiederholte Suchläufe. Lange Notizen mit naechster_offset vollständig weiterlesen; mehrere unabhängige Werkzeugaufrufe dürfen in eine Runde.
+- Neue Notiz: notiz_erstellen mit vollständigem Inhalt. Ergänzung: notiz_lesen, dann notiz_ergaenzen. Ausdrückliche Änderung: notiz_lesen, dann notiz_bearbeiten mit kleinstem passenden Umfang. Alles andere samt YAML erhalten; volle Neustrukturierung nur bei entsprechendem Auftrag. Keine ganzen Dateien löschen.
+- Eindeutige Nutzeraufträge sind bereits freigegeben. Keine erneuten Erlaubnisfragen, Arbeitsankündigungen oder Entwürfe nur im Chat. Das Ergebnis muss mit erfolgreichen Werkzeugen im Vault landen.
+- Globale Emoji-/Linkbereinigung: einmal markdown_dateien_bereinigen; Suchtreffer begrenzen nie den Umfang. Dateiordnung: dateien_in_unterordner_verschieben aktualisiert auch Links.
+- Anhänge: bereitgestellte Auswertungen zuerst nutzen. Nur fehlende relevante Inhalte mit anhang_lesen/bild_ansehen nachladen. Alle zum Auftrag gehörenden Quellen berücksichtigen, Widersprüche mit Quelle benennen, Fakten nicht erfinden.
+- Originale gemäß Auftragsvertrag mit anhang_in_vault_ablegen in den passenden Themenordner/Dateien kopieren; bei ausdrücklich verbotener Ablage nichts kopieren. Vor dem Schreiben einer Quellennotiz Originale ablegen und exakt einbetten_als übernehmen. Dateinamenskollisionen nummeriert das Werkzeug automatisch (image.png, image1.png, image2.png): keine Namenssuche oder Rückfrage.
+- Nutze vorhandene Struktur und passende, tatsächlich vorhandene WikiLinks. Keine sachfremden Notizen umgestalten. Kurze Absätze, verständliche Gliederung, fachlich vollständiger Inhalt; keine Platzhalter, Dopplungen oder pauschalen Herkunftssätze.
+- Nach erfolgreichem Schreiben genügt das Werkzeugergebnis als Speichernachweis. Nur bei konkretem Fehler erneut arbeiten. Zum Abschluss ein kurzer deutscher Satz mit tatsächlichem Pfad; den Notizinhalt nicht nochmals im Chat wiederholen."""
