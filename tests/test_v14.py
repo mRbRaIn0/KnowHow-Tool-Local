@@ -55,3 +55,10 @@ def test_save_note_numbers_without_overwriting(tmp_path, monkeypatch):
     assert [first["path"], second["path"]] == ["Notiz.md", "Notiz1.md"]
     assert (tmp_path / "Notiz.md").read_text(encoding="utf-8") == "neu"
     assert (tmp_path / "Notiz1.md").read_text(encoding="utf-8") == "neu"
+
+
+def test_missing_syntax_reference_never_blocks_the_vault(tmp_path, monkeypatch):
+    from backend import vault_guide
+    monkeypatch.setattr(vault_guide, "BUNDLE_ROOT", tmp_path / "fehlt")
+    result = ensure_vault_guide(tmp_path)
+    assert result["created"] and not (tmp_path / "Obsidian_Syntax.md").exists()

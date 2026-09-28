@@ -94,11 +94,13 @@ beauftragt werden, zum Beispiel: „Ändere in 00 Inhalt Emojis auf Ja“ oder
 def ensure_vault_guide(root: Path, create: bool = True, refresh: bool = True) -> Dict[str, object]:
     """Legt die Hauptseite einmalig an und aktualisiert nur ihren Indexblock."""
     if create and not safe_join(root, "Obsidian_Syntax.md").exists():
-        reference = (BUNDLE_ROOT / "assets" / "Obsidian_Syntax.md").read_bytes()
         try:
+            reference = (BUNDLE_ROOT / "assets" / "Obsidian_Syntax.md").read_bytes()
             create_unique_file(root, "Obsidian_Syntax.md", lambda out: out.write(reference), exact=True)
         except FileExistsError:
             pass
+        except OSError:
+            pass  # Die Referenz ist optional; ohne sie bleibt die Kernsyntax im Prompt.
     target = safe_join(root, GUIDE_PATH)
 
     if not target.exists():

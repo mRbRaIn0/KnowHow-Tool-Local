@@ -181,6 +181,12 @@ async def apply_variant(chat_id: str, request: VariantApply):
         lock.release()
     from ..tools import invalidate_overview
     invalidate_overview(root)
+    # Eine spätere Überarbeitung ("Ändern") ersetzt genau diese gespeicherte Notiz.
+    row = next(item for item in database.list_messages(chat_id) if item['id'] == request.message_id)
+    for item in row['sources']:
+        if item.get('tool') == 'varianten':
+            item['result']['uebernommen'] = saved_path
+    database.update_message(request.message_id, sources=row['sources'])
     title = variants[request.index].get('titel', f'Variante {request.index + 1}')
     database.add_message(chat_id, 'assistant', f'{title} übernommen: [[{saved_path[:-3]}]]',
                          sources=[{'tool': 'notiz_bearbeiten' if overwrite else 'notiz_erstellen',
@@ -571,6 +577,13 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         if not 0 <= base.index < len(base_result.get("varianten") or []):
             raise HTTPException(400, {"message": "Unbekannte Variante.", "kind": "variant"})
         variant_base = {**base_result, "inhalt": base_result["varianten"][base.index]["inhalt"]}
+        if base_result.get("uebernommen"):
+            # Bereits übernommen: die Überarbeitung ersetzt diese Notiz statt eine Kopie anzulegen.
+            try:
+                saved = (await asyncio.to_thread(read_text_file, root, base_result["uebernommen"]))["content"]
+                variant_base.update(ziel=base_result["uebernommen"], neu=False, vorher_hash=_digest(saved))
+            except (VaultError, OSError):
+                pass
     variant_mode = runner is not None and not direct and bool(
         variant_base or (request.variants and (requirements.note_write or requirements.requires_edit)))
     variant_target: Optional[tuple] = None  # (Pfad, bisheriger Inhalt oder None)

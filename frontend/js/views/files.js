@@ -1,6 +1,6 @@
 // Dateien: Vault-Baum links, Editor bzw. Betrachter in der Mitte.
 
-import { api } from '../api.js';
+import { api, uploadToVault } from '../api.js';
 import { collectLinks, renderMarkdown, splitFrontmatter } from '../markdown.js';
 import {
   baseName, confirmDialog, fmtBytes, fmtDate, h, icon, parentDir,
@@ -74,13 +74,16 @@ async function renderTree() {
     h('span', { class: 'label', text: state.status?.vault?.name || 'Vault' }),
     h('button', { class: 'icon-btn', title: 'Neue Notiz', onclick: () => createNote(currentFolder()) }, icon('plus')),
     h('button', { class: 'icon-btn', title: 'Neuer Ordner', onclick: () => createFolder(currentFolder()) }, icon('folder-open')),
+    h('button', { class: 'icon-btn', title: 'Dateien hochladen (in den Ordner der geöffneten Datei)', onclick: () => pickUpload(currentFolder()) }, icon('clip')),
     h('button', { class: 'icon-btn', title: 'Im Explorer anzeigen', onclick: () => reveal('') }, icon('external')));
   const tree = h('div', { class: 'tree' });
   tree.addEventListener('dragover', (event) => {
-    if (Array.from(event.dataTransfer?.types || []).includes('application/x-vault-path')) event.preventDefault();
+    const types = Array.from(event.dataTransfer?.types || []);
+    if (types.includes('application/x-vault-path') || types.includes('Files')) event.preventDefault();
   });
   tree.addEventListener('drop', (event) => {
     if (event.target.closest('.tree__row')) return;
+    if (droppedFiles(event, '')) return;
     moveDropped(event, '');
   });
   elements.rail.replaceChildren(head, tree);
@@ -126,7 +129,8 @@ function renderFolder(node, depth) {
   row.addEventListener('contextmenu', (event) => { event.preventDefault(); folderMenu(node); });
   makeDraggable(row, node);
   row.addEventListener('dragover', (event) => {
-    if (!Array.from(event.dataTransfer?.types || []).includes('application/x-vault-path')) return;
+    const types = Array.from(event.dataTransfer?.types || []);
+    if (!types.includes('application/x-vault-path') && !types.includes('Files')) return;
     event.preventDefault();
     event.stopPropagation();
     row.classList.add('is-drop-target');
@@ -134,6 +138,7 @@ function renderFolder(node, depth) {
   row.addEventListener('dragleave', () => row.classList.remove('is-drop-target'));
   row.addEventListener('drop', (event) => {
     row.classList.remove('is-drop-target');
+    if (droppedFiles(event, node.path)) return;
     moveDropped(event, node.path);
   });
 
@@ -164,6 +169,39 @@ function makeDraggable(row, node) {
     row.classList.add('is-dragging');
   });
   row.addEventListener('dragend', () => row.classList.remove('is-dragging'));
+}
+
+/** Dateien aus dem Explorer: sofort in den Zielordner, gleiche Namen nummeriert. */
+function droppedFiles(event, targetDir) {
+  const files = [...(event.dataTransfer?.files || [])];
+  if (!files.length) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  uploadInto(files, targetDir);
+  return true;
+}
+
+function pickUpload(targetDir) {
+  const picker = h('input', { type: 'file', multiple: true });
+  picker.addEventListener('change', () => uploadInto([...picker.files], targetDir));
+  picker.click();
+}
+
+async function uploadInto(files, targetDir) {
+  if (!files.length) return;
+  try {
+    const result = await uploadToVault(files, targetDir);
+    for (const problem of result.fehler || []) toast(`${problem.name}: ${problem.grund}`, 'bad');
+    const saved = result.gespeichert || [];
+    if (saved.length) {
+      toast(saved.length === 1 ? `Gespeichert: ${saved[0].path}` : `${saved.length} Dateien gespeichert in ${targetDir || 'Vault-Stamm'}.`, 'ok');
+      await refreshFileIndex();
+      if (targetDir) openFolders.add(targetDir);
+      await renderTree();
+    }
+  } catch (error) {
+    toast(error.message, 'bad');
+  }
 }
 
 async function moveDropped(event, targetDir) {

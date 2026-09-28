@@ -889,3 +889,21 @@ mark { background: var(--accent-quiet); color: var(--accent); border-radius: 2px
 .composer__refine { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; color: var(--accent); }
 .composer__refine[hidden] { display: none; }
 .composer__refine .icon-btn { width: 24px; height: 24px; }
+
+/* V1.4 Schnell erfassen: Notizen, Bilder, Dateien */
+.capture { display: grid; gap: 10px; }
+.capture .row > .input { flex: 1 1 220px; }
+.dropzone {
+  display: grid; justify-items: center; gap: 4px; padding: 22px 16px; cursor: pointer;
+  border: 1px dashed var(--line); border-radius: var(--r-md); background: var(--surface);
+  color: var(--text-2); text-align: center; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.dropzone small { color: var(--text-3); font-size: var(--step-1); }
+.dropzone:hover, .dropzone.is-drop { border-color: var(--accent-line); background: var(--accent-quiet); color: var(--accent); }
+.dropzone.is-busy { opacity: .6; pointer-events: none; }
+.asset-card { position: relative; }
+.asset-card__open { display: grid; gap: 8px; text-align: left; color: inherit; min-width: 0; }
+.asset-card__open span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-card__tools { display: flex; gap: 2px; justify-content: flex-end; }
+.asset-card__tools .icon-btn { width: 28px; height: 28px; }
+.asset-card__tools .icon-btn svg { width: 15px; height: 15px; }

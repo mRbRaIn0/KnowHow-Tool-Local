@@ -608,6 +608,9 @@ Die Oberfläche stellt dieselben Sicherheits- und Abschlussregeln sichtbar dar:
   und Fensterknöpfen; die Windows-Taskleiste bleibt zugänglich.
 - Die Hauptnavigation enthält die getrennten Einträge **Wissen erweitern** und
   **Wissen fragen** mit eigenem aktivem Zustand und eigener Verlaufsliste.
+- V1.4: **Notizen**, **Bilder** und **Dateien** sind schnelle Arbeitsansichten zum
+  Erfassen und Ablegen (ohne Rückfrage, nummerierte Namen). KI-Aktionen dort öffnen
+  nur einen vorbereiteten Arbeitschat; gesendet wird erst durch den Nutzer.
 - Leere Zustände, Eingabehinweise, Beispielaufträge und die Kontextspalte
   benennen den aktuellen Modus ausdrücklich.
 - Im Fragen-Chat steht sichtbar `Wissensbasis + KI · nur lesen`; Datei-Upload und

@@ -8,12 +8,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import mimetypes
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ..attachments import MAX_FILE_BYTES, AttachmentError, safe_filename
 from ..deps import current_vault
 from ..deps import current_profile
 from ..watcher import watcher
@@ -139,6 +140,35 @@ class MoveRequest(BaseModel):
 class DeleteRequest(BaseModel):
     path: str
     confirm: bool = False
+
+
+@router.post("/upload")
+async def upload_files(files: List[UploadFile] = File(...), folder: Optional[str] = Form(None)) -> Dict[str, Any]:
+    """Schnelle Ablage aus den Tabs: ohne Rückfrage, Kollisionen werden nummeriert.
+
+    Ohne Zielordner landet alles im konfigurierten Anhangordner des Profils.
+    """
+    profile = current_profile()
+    root = current_vault()
+    target = (profile.vault.attachments_dir if folder is None else folder).strip().strip("/\\")
+    saved: List[Dict[str, Any]] = []
+    failed: List[Dict[str, str]] = []
+    for upload in files:
+        try:
+            data = await upload.read()
+            if len(data) > MAX_FILE_BYTES:
+                raise VaultError(f"zu groß (erlaubt sind {MAX_FILE_BYTES // 1024 // 1024} MB)")
+            name = safe_filename(upload.filename or "datei")
+            path = await asyncio.to_thread(
+                create_unique_file, root, f"{target}/{name}" if target else name,
+                lambda out, data=data: out.write(data))
+            saved.append({"path": path, "name": path.rsplit("/", 1)[-1],
+                          "kind": kind_for(safe_join(root, path))})
+        except (VaultError, AttachmentError, OSError) as exc:
+            failed.append({"name": upload.filename or "datei", "grund": str(exc)})
+        finally:
+            await upload.close()
+    return {"gespeichert": saved, "fehler": failed}
 
 
 @router.post("/mkdir")

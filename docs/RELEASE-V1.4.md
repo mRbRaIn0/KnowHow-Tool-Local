@@ -32,6 +32,37 @@
   Vergleiche → Tabelle, Abläufe → nummerierte Schritte, Themen → Überschriften,
   Begriffe → Definition, verwandte Notizen → interne Links.
 
+## Notizen, Bilder, Dateien (Funktion E)
+
+- **Notizen:** Schnellerfassung mit Titel, optionalem Ordner und Text; sofort gespeichert,
+  Namenskonflikte nummeriert. „Speichern + KI strukturieren“ und „Mit KI überarbeiten“
+  öffnen einen Arbeitschat mit vorbereitetem Auftrag (vor dem Senden änderbar, Varianten
+  zuschaltbar).
+- **Bilder:** Ablagefläche für Ziehen, Strg+V und Auswahl; Filter, Einbettung kopieren
+  (`![[…]]`) und „Mit KI auswerten“. Letzteres hängt die Vault-Datei an einen neuen Chat,
+  ohne sie im Vault zu duplizieren.
+- **Dateien:** Hochladen-Knopf und Ablegen von Explorer-Dateien direkt auf einen Ordner.
+- Navigation in Arbeitsreihenfolge: Wissen fragen, Wissen erweitern, Notizen, Bilder, Dateien.
+- Neue Endpunkte: `POST /api/files/upload` (Ordner optional, Standard Anhangordner) und
+  `POST /api/attachments/{chat}/from-vault`.
+
+## Behobene Fehler
+
+- Die Chat-Ansicht meldete ihre Drop-Listener auf dem dauerhaften Hauptbereich nie ab.
+  Spätere Drops in anderen Ansichten wurden zusätzlich in den zuletzt geöffneten Chat
+  hochgeladen (seit der direkten Vault-Ablage mit zusätzlicher Vault-Kopie); nach mehreren
+  Chat-Besuchen mehrfach. Die Listener werden jetzt beim Verlassen entfernt.
+- Fehlt die mitgelieferte `Obsidian_Syntax.md`, wird der Vault trotzdem eingerichtet.
+
+## Prüfung
+
+208 Python-Tests bestanden (neu: Suchbegriffe, Relevanz, KI-Wissen-Kennzeichnung,
+Quellenlinks, Verlaufsgrenze, Doppelaufrufe, Varianten samt Übernahme, Konflikt, Rücknahme
+und Überarbeitung, Tab-Ablage, Anhang aus dem Vault). JavaScript-Modulsyntax geprüft. In
+einer isolierten Instanz mit Test-Vault und simuliertem Ollama wurden Fragen mit und ohne
+Treffer, alle drei Varianten, Übernehmen, Ändern, Schnellerfassung, Bild- und Dateiablage
+im Browser durchgespielt. Echte Qwen-Laufzeiten hängen weiter von Hardware und Modell ab.
+
 ## Ablage und Oberfläche
 
 - Markdown- und Obsidian-Grundregeln sind fest im Systemkontext. Seltene Syntax steht in `Obsidian_Syntax.md`, die für jeden Vault einmalig angelegt und nur bei Bedarf gelesen wird. Eigene Änderungen daran bleiben erhalten.

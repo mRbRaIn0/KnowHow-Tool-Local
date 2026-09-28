@@ -100,9 +100,15 @@ def test_new_note_variant_is_numbered_and_can_be_refined(setup):
                   variant_base={'message_id': step['result']['message_id'], 'index': 1})
     refined = next(e for e in events if e.get('tool') == 'varianten')
     assert [v['titel'] for v in refined['result']['varianten']] == ['Überarbeitete Fassung']
-    assert refined['result']['ziel'] == target
+    # Zuletzt übernommen wurde second['path']: genau diese Notiz wird ersetzt, keine weitere Kopie.
+    assert refined['result']['ziel'] == second['path'] and not refined['result']['neu']
     assert len(calls) == 1 and 'STRUKTURIERT' in calls[0]['messages'][1]['content']
     assert 'Mach sie kürzer.' in calls[0]['messages'][1]['content']
+    replaced = asyncio.run(chat.apply_variant(work['id'], chat.VariantApply(
+        message_id=refined['result']['message_id'], index=0)))
+    assert replaced == {'path': second['path'], 'overwritten': True}
+    assert (root / second['path']).read_text(encoding='utf-8') == '# Notiz\n\nÜBERARBEITUNG\n'
+    assert not (root / (target[:-3] + '2.md')).exists()
 
 
 def test_simple_messages_ignore_variant_switch(setup):

@@ -25,6 +25,10 @@ Markdown-Dateien, die du auch mit Obsidian bearbeiten kannst.
   liefern drei Fassungen – Strikt (nur Vorhandenes), Strukturiert (besser gegliedert),
   Erweitert (mit Ergänzungen und Verbesserungsvorschlägen). Wählen, dann **Übernehmen**
   oder **Ändern** mit eigenem Wunsch. Erst die Übernahme schreibt, rücknehmbar.
+- **Notizen, Bilder, Dateien:** Notizen direkt erfassen (Strg+Enter), Bilder per
+  Ziehen oder Strg+V ablegen, Dateien aus dem Explorer auf einen Ordner ziehen – ohne
+  Rückfrage, gleiche Namen werden nummeriert. „Mit KI überarbeiten“ bzw. „Mit KI
+  auswerten“ öffnet einen vorbereiteten Arbeitschat. Obsidian bleibt die Hauptansicht.
 - **Saubere Struktur:** Fakten als Stichpunkte, Vergleiche als Tabelle, Abläufe als
   nummerierte Schritte, Begriffe als Definition, passende interne Links.
 - Häufige Obsidian-Syntax ist fest im Code; erweiterte Syntax steht in der bei Bedarf gelesenen Vault-Datei `Obsidian_Syntax.md`.
@@ -113,7 +117,7 @@ Weitere Funktionen:
    neben der Eingabe einschalten; bestehende Einstellungen bleiben erhalten. Die Einrichtung braucht Internet; der spätere Betrieb kann
    offline erfolgen.
 
-2. **Release entpacken.** Lade `KnowHow-Tool-v1.3-Windows.zip` aus den
+2. **Release entpacken.** Lade `KnowHow-Tool-v1.4-Windows.zip` aus den
    [Releases](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
    und entpacke es in einen beschreibbaren lokalen Ordner, beispielsweise
    `%LOCALAPPDATA%/KnowHow-Tool`. Chats liegen im Ordner `data` **neben** der EXE.
@@ -228,9 +232,9 @@ Der Build erzeugt `dist/KnowHow Tool.exe`, das Release-ZIP und
 zusammengestellt und mitgeliefert. Für reproduzierbare Ergebnisse eine frische
 Umgebung mit `requirements.txt` und `requirements-build.txt` verwenden.
 
-V1.3: 109 automatisierte Python-Tests bestanden. Zusätzliche Build- und
+V1.4: 208 automatisierte Python-Tests bestanden. Zusätzliche Build- und
 Startprüfungen stehen im Release-Bericht.
-Details und Grenzen stehen in den [Release-Notizen](docs/RELEASE-V1.3.md).
+Details und Grenzen stehen in den [Release-Notizen](docs/RELEASE-V1.4.md).
 
 Die vorherige V1.1 wurde mit automatisierten Tests, einem echten lokalen Bild-/DOCX-Workflow
 und einem Starttest der portablen EXE geprüft. Umfang und wiederholbare

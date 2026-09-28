@@ -10,11 +10,12 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from .. import attachments
 from ..attachments import AttachmentError
 from ..deps import current_db, current_profile, current_vault
-from ..vault import VaultError
+from ..vault import VaultError, safe_join, to_relative
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
@@ -72,6 +73,30 @@ async def upload(chat_id: str, files: List[UploadFile] = File(...)) -> Dict[str,
 
     return {"gespeichert": gespeichert, "fehler": fehler,
             "alle": attachments.pending(chat_id)}
+
+
+class FromVault(BaseModel):
+    path: str
+
+
+@router.post("/{chat_id}/from-vault")
+async def attach_from_vault(chat_id: str, request: FromVault) -> Dict[str, Any]:
+    """Hängt eine vorhandene Vault-Datei an, ohne sie im Vault zu duplizieren."""
+    chat = eigener_chat(chat_id)
+    if chat.get("purpose") == "ask":
+        raise HTTPException(400, {"message": "Anhänge gehören in ‚Wissen erweitern‘.", "kind": "wrong_chat_mode"})
+    root = current_vault(current_profile())
+    try:
+        source = safe_join(root, request.path)
+        if not source.is_file():
+            raise VaultError(f"Nicht gefunden: {request.path}")
+        data = await asyncio.to_thread(source.read_bytes)
+        item = await asyncio.to_thread(attachments.store, chat_id, source.name, data)
+        relative = to_relative(root, source)
+        await asyncio.to_thread(attachments.record_vault_path, chat_id, item["name"], relative)
+    except (AttachmentError, VaultError, OSError) as exc:
+        raise HTTPException(400, {"message": str(exc), "kind": "attachment"}) from exc
+    return {**item, "vault_path": relative}
 
 
 @router.get("/{chat_id}")

@@ -37,7 +37,7 @@ def main():
     root = Path.cwd()
     folder = root / '.test-runtime' / ('v13-ui-' + uuid.uuid4().hex[:8])
     folder.mkdir(parents=True)
-    for name in ['backend', 'frontend', 'templates']:
+    for name in ['backend', 'frontend', 'templates', 'assets']:
         shutil.copytree(root / name, folder / name, ignore=shutil.ignore_patterns('__pycache__'))
     for name in ['run.py', 'desktop.py']:
         shutil.copy2(root / name, folder / name)

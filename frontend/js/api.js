@@ -145,6 +145,26 @@ export async function uploadFiles(chatId, files) {
   return data;
 }
 
+/** Legt Dateien direkt im Vault ab (ohne Chat). Ohne Ordner: Anhangordner des Profils. */
+export async function uploadToVault(files, folder = null) {
+  const form = new FormData();
+  for (const file of files) form.append('files', file, file.name);
+  if (folder !== null) form.append('folder', folder);
+  let response;
+  try {
+    response = await fetch('/api/files/upload', { method: 'POST', body: form });
+  } catch {
+    throw new ApiError('Die Ablage ist fehlgeschlagen. Läuft das Backend noch?', { kind: 'offline' });
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = data?.detail;
+    throw new ApiError(typeof detail === 'string' ? detail : detail?.message || 'Ablage fehlgeschlagen.',
+      { status: response.status, kind: detail?.kind || 'error' });
+  }
+  return data;
+}
+
 /**
  * Liest einen Server-Sent-Events-Stream aus einer POST-Antwort.
  * onEvent bekommt jedes geparste JSON-Objekt; Rückgabe: Abbruchfunktion.

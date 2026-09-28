@@ -59,6 +59,17 @@ export async function mount({ route, el }) {
   activeMode = route.view === 'ask' ? CHAT_MODES.ask : CHAT_MODES.vault;
   elements = { rail: el.rail, main: el.main, context: el.context };
   state.activeChatId = route.id || null;
+  if (!route.id && route.params.draft && activeMode.purpose === 'vault') {
+    // Aus Notizen/Bilder/Dateien: neuer Arbeitschat mit vorbereitetem Auftrag.
+    try {
+      const created = await api.createChat(activeMode.newTitle, activeMode.purpose);
+      stream.setDraft(created.id, route.params.draft);
+      navigate(`/${activeMode.route}/${created.id}`);
+      return;
+    } catch (error) {
+      toast(error.message, 'bad');
+    }
+  }
   await renderRail(route.id);
 
   if (!route.id) {
@@ -939,18 +950,23 @@ function wireDropzone(box) {
   let tiefe = 0;
   const ziel = elements.main;
   const hatDateien = (event) => [...(event.dataTransfer?.types || [])].includes('Files');
+  // #main bleibt über Ansichtswechsel bestehen: Ohne Abmelden würden spätere
+  // Drops in Bilder/Dateien zusätzlich in den zuletzt geöffneten Chat hochgeladen.
+  const abort = new AbortController();
+  const signal = abort.signal;
+  unsubscribe.push(() => abort.abort());
 
   ziel.addEventListener('dragenter', (event) => {
     if (!hatDateien(event)) return;
     event.preventDefault();
     tiefe += 1;
     box.classList.add('is-dropping');
-  });
-  ziel.addEventListener('dragover', (event) => { if (hatDateien(event)) event.preventDefault(); });
+  }, { signal });
+  ziel.addEventListener('dragover', (event) => { if (hatDateien(event)) event.preventDefault(); }, { signal });
   ziel.addEventListener('dragleave', () => {
     tiefe = Math.max(0, tiefe - 1);
     if (!tiefe) box.classList.remove('is-dropping');
-  });
+  }, { signal });
   ziel.addEventListener('drop', (event) => {
     const dateien = [...(event.dataTransfer?.files || [])];
     if (!dateien.length) return;
@@ -958,7 +974,7 @@ function wireDropzone(box) {
     tiefe = 0;
     box.classList.remove('is-dropping');
     addFiles(dateien);
-  });
+  }, { signal });
 }
 
 async function addFiles(dateien) {
