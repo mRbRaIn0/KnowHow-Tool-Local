@@ -15,6 +15,23 @@
 - Arbeitschat: identische Lese-/Such-/Bildaufrufe werden nicht wiederholt,
   höchstens zwei Suchläufe je Auftrag.
 
+## Varianten-Modus (Funktion C)
+
+- Schalter „Varianten“ im Arbeitschat, standardmäßig aus. Er wirkt nur bei Schreib-,
+  Ergänzungs- oder Änderungsaufträgen; einfache Nachrichten laufen normal.
+- Drei werkzeugfreie Modellaufrufe ohne Thinking: Strikt, Strukturiert, Erweitert.
+  Ziel ist eine genannte bestehende Notiz oder ein Vorschlag unter `02 KI-Notizen/`.
+- Nichts wird vor der Wahl gespeichert. **Übernehmen** ersetzt die Zielnotiz (nur wenn
+  sie seitdem unverändert ist) oder legt eine nummerierte neue Notiz an; der Vorgang ist
+  über „Letzten Vault-Auftrag rückgängig“ zurücknehmbar. **Ändern** überarbeitet die
+  gewählte Fassung nach einem eigenen Wunsch.
+
+## Struktur nach Inhalt (Funktion F)
+
+- Feste Regel im Schreibkontext und in den Antwortregeln: Fakten → Stichpunkte,
+  Vergleiche → Tabelle, Abläufe → nummerierte Schritte, Themen → Überschriften,
+  Begriffe → Definition, verwandte Notizen → interne Links.
+
 ## Ablage und Oberfläche
 
 - Markdown- und Obsidian-Grundregeln sind fest im Systemkontext. Seltene Syntax steht in `Obsidian_Syntax.md`, die für jeden Vault einmalig angelegt und nur bei Bedarf gelesen wird. Eigene Änderungen daran bleiben erhalten.

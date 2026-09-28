@@ -602,6 +602,7 @@ const STEP_LABELS = {
 
 /** Eine Zeile pro Werkzeugaufruf — nachvollziehbar, was die KI im Vault getan hat. */
 function renderStep(step, pending = false) {
+  if (step.tool === 'varianten' && step.result?.varianten) return variantChooser(step.result);
   const [label, iconName] = STEP_LABELS[step.tool] || [step.tool, 'files'];
   const result = step.result || {};
   const ziel = result.erstellt || result.ergaenzt || result.bearbeitet || result.abgelegt || result.notiz || result.pfad
@@ -633,6 +634,66 @@ function renderStep(step, pending = false) {
     ? h('button', { class: classes.join(' '), title: `${oeffnet} öffnen`,
         onclick: () => navigate(`/files?path=${encodeURIComponent(oeffnet)}`) }, ...kinder)
     : h('div', { class: classes.join(' ') }, ...kinder);
+}
+
+/** Variante 1 | Variante 2 | Variante 3 | Ändern — gespeichert wird erst nach der Wahl. */
+function variantChooser(result) {
+  const variants = result.varianten || [];
+  let selected = Math.min(1, variants.length - 1);
+  const preview = h('div', { class: 'md variant__preview' });
+  const path = h('input', { class: 'input input--mono', value: result.ziel, 'aria-label': 'Zielpfad im Vault',
+    readOnly: !result.neu, title: result.neu ? 'Neue Notiz – Pfad anpassbar' : 'Bestehende Notiz wird ersetzt' });
+  const status = h('p', { class: 'field__hint', role: 'status', 'aria-live': 'polite' });
+  const tabs = h('div', { class: 'variant__tabs', role: 'tablist' });
+  const show = (index) => {
+    selected = index;
+    preview.innerHTML = renderMarkdown(variants[index]?.inhalt || '', markdownOptions());
+    for (const [i, tab] of [...tabs.children].entries()) {
+      tab.classList.toggle('is-active', i === index);
+      tab.setAttribute('aria-selected', i === index ? 'true' : 'false');
+    }
+  };
+  variants.forEach((variant, index) => tabs.append(h('button', {
+    class: 'btn btn--sm', type: 'button', role: 'tab', onclick: () => show(index),
+  }, variant.titel || `Variante ${index + 1}`)));
+
+  const apply = h('button', { class: 'btn btn--sm btn--primary', type: 'button', onclick: async () => {
+    apply.disabled = true;
+    status.textContent = 'Wird gespeichert …';
+    try {
+      const saved = await api.post(`/api/chats/${state.activeChatId}/variants/apply`,
+        { message_id: result.message_id, index: selected, path: path.value });
+      status.textContent = `${saved.overwritten ? 'Ersetzt' : 'Gespeichert'}: ${saved.path} · rückgängig über die Kontextspalte.`;
+      toast(`Im Vault gespeichert: ${saved.path}`, 'ok');
+      await refreshFileIndex();
+      renderContext(elements.chat);
+    } catch (error) {
+      status.textContent = error.message;
+      apply.disabled = false;
+    }
+  } }, 'Übernehmen');
+  const change = h('button', { class: 'btn btn--sm', type: 'button',
+    onclick: () => startRefine(result.message_id, selected, variants[selected]?.titel || 'Variante') }, 'Ändern');
+
+  const card = h('section', { class: 'card variant' },
+    h('div', { class: 'variant__head' }, tabs, h('span', { class: 'spacer' }), change, apply),
+    h('label', { class: 'label', text: result.neu ? 'Neue Notiz' : 'Ersetzt bestehende Notiz' }), path,
+    preview, status);
+  show(selected);
+  return card;
+}
+
+/** Laufende Variantenerstellung sichtbar machen, bevor alle Fassungen fertig sind. */
+function renderVariantProgress(event, run) {
+  if (!live) return;
+  if (!live.variants) {
+    live.variants = h('section', { class: 'card variant variant--live' },
+      h('span', { class: 'label' }), h('div', { class: 'md variant__preview' }));
+    live.node._steps.append(live.variants);
+  }
+  const current = run.variants[event.index] || {};
+  live.variants.querySelector('.label').textContent = `${current.title || 'Variante'} wird erstellt …`;
+  live.variants.querySelector('.md').innerHTML = renderMarkdown(current.text || '', markdownOptions());
 }
 
 function renderAnalysis(event) {
@@ -765,7 +826,35 @@ function composerMeta() {
   elements.thinkToggle = checkbox;
   elements.thinkLabel = think;
   const controls = h('div', { class: 'composer__side' }, select, think);
+  if (activeMode.purpose === 'vault') {
+    // Nur für größere Schreibaufträge: drei Fassungen zur Auswahl vor dem Speichern.
+    elements.variantToggle = h('input', { type: 'checkbox' });
+    controls.append(h('label', {
+      class: 'composer__option',
+      title: 'Bei größeren Notizaufträgen drei Varianten (Strikt, Strukturiert, Erweitert) zur Auswahl erzeugen. Einfache Aufgaben laufen weiter direkt.',
+    }, elements.variantToggle, 'Varianten'));
+    elements.refineHint = h('span', { class: 'composer__refine', hidden: true });
+    controls.append(elements.refineHint);
+  }
   return controls;
+}
+
+/** "Ändern": die nächste Eingabe überarbeitet genau diese Variante. */
+function startRefine(messageId, index, title) {
+  elements.variantBase = { message_id: messageId, index };
+  if (elements.refineHint) {
+    elements.refineHint.replaceChildren(`${title} ändern`,
+      h('button', { class: 'icon-btn', type: 'button', title: 'Ändern abbrechen', onclick: stopRefine }, icon('close')));
+    elements.refineHint.hidden = false;
+  }
+  elements.input.placeholder = 'Was soll an dieser Variante anders werden? (z. B. kürzer, mit Tabelle)';
+  elements.input.focus();
+}
+
+function stopRefine() {
+  elements.variantBase = null;
+  if (elements.refineHint) elements.refineHint.hidden = true;
+  if (elements.input) elements.input.placeholder = `${activeMode.placeholder}  (Enter senden, Umschalt+Enter neue Zeile)`;
 }
 
 function fillModelSelect(select, status) {
@@ -1010,10 +1099,14 @@ function send() {
   attachmentState = [];
   renderChips();
 
+  const variantBase = elements.variantBase || null;
+  elements.variantBase = null;
+  if (elements.refineHint) elements.refineHint.hidden = true;
   stream.send(
     state.activeChatId,
     content.trim() ? content : 'Übernimm die angehängten Dateien in den Vault und dokumentiere ihren Inhalt.',
-    { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked },
+    { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked,
+      variants: Boolean(elements.variantToggle?.checked), variant_base: variantBase },
   );
 }
 
@@ -1104,6 +1197,17 @@ function onStreamEvent({ chatId, event, run }) {
       live.progress = null;
     }
     return;
+  }
+
+  if (event.type === 'variant_start' || event.type === 'variant_delta') {
+    renderVariantProgress(event, run);
+    scrollToEnd();
+    return;
+  }
+
+  if (event.type === 'tool_result' && event.tool === 'varianten') {
+    live.variants?.remove();
+    live.variants = null;
   }
 
   if (event.type === 'tool_start') {
@@ -1202,32 +1306,22 @@ async function saveAsNote(message) {
 
 /* --------------------------------------------------------- Kontext */
 
-function renderContext(chat, messageCount = 0) {
+function renderContext() {
   const status = state.status;
+  if (!elements.context) return;
   clear(elements.context).append(
     h('div', { class: 'ctx-block' },
       h('span', { class: 'label', text: 'Modus' }),
       h('strong', { class: 'ctx-mode', text: activeMode.label }),
       h('p', { class: 'field__hint', text: activeMode.purpose === 'ask'
-        ? 'Liest die Wissensbasis und ergänzt bei Bedarf klar gekennzeichnetes KI-Wissen. Keine Vault-Änderungen.'
-        : 'Nimmt Informationen und Dateien auf und darf den Vault gezielt erweitern oder bearbeiten.' })),
-    h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Chat' }),
-      h('dl', { class: 'ctx-kv' },
-        h('dt', { text: 'Titel' }), h('dd', { text: chat?.title || '–' }),
-        h('dt', { text: 'Erstellt' }), h('dd', { text: fmtDate(chat?.created_at) }),
-        h('dt', { text: 'Nachrichten' }), h('dd', { text: String(messageCount) }))),
+        ? 'Antwortet aus deinem Vault mit Quellenlinks. Ohne Treffer: „Kein Eintrag gefunden – KI-Wissen“. Keine Vault-Änderungen.'
+        : 'Nimmt Informationen und Dateien auf und darf den Vault gezielt erweitern oder bearbeiten. „Varianten“ zeigt bei größeren Aufträgen drei Fassungen zur Auswahl.' })),
     h('div', { class: 'ctx-block' },
       h('span', { class: 'label', text: 'Modell · nächste Nachricht' }),
       h('dl', { class: 'ctx-kv' },
         h('dt', { text: 'Name' }), h('dd', { text: status?.model?.name || '–' }),
         h('dt', { text: 'Bilder' }), h('dd', { text: status?.model?.vision ? 'ja' : 'nein' }),
         h('dt', { text: 'Thinking' }), h('dd', { text: status?.model?.thinking ? (status?.ai?.thinking ? 'aktiv' : 'ausgeschaltet') : 'nicht unterstützt' }))),
-    h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Aktionen' }),
-      h('div', { class: 'row row--wrap' },
-        h('button', { class: 'btn btn--sm', onclick: () => chat && renameChat(chat) }, icon('pencil'), 'Umbenennen'),
-        h('button', { class: 'btn btn--sm btn--danger', onclick: () => chat && deleteChat(chat) }, icon('trash'), 'Löschen'))),
     activeMode.purpose === 'vault' ? h('div', { class: 'ctx-block' }, undoButton()) : null,
   );
 }

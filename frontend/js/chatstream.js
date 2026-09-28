@@ -58,6 +58,7 @@ export function send(chatId, content, selection = {}) {
     changedFiles: [],
     progress: null,
     analyses: {},
+    variants: [],
     error: null,
     abort: null,
   };
@@ -71,6 +72,8 @@ export function send(chatId, content, selection = {}) {
       else if (event.type === 'thinking') run.thinking += event.delta;
       else if (event.type === 'content') run.content += event.delta;
       else if (event.type === 'tool_result') run.steps.push(event);
+      else if (event.type === 'variant_start') run.variants[event.index] = { title: event.title, text: '' };
+      else if (event.type === 'variant_delta') run.variants[event.index].text += event.delta;
       else if (event.type === 'write_preview') run.preview = event.preview;
       else if (event.type === 'attachment_progress') {
         run.progress = event;

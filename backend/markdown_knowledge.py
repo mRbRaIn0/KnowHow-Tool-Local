@@ -10,3 +10,10 @@ MARKDOWN_INSTRUCTIONS = """Markdown / Obsidian — Kernsyntax beim Schreiben:
 - Tags: #wissen/thema. Properties als YAML-Frontmatter zwischen --- am Dateianfang; bestehende Metadaten erhalten.
 - Callouts: > [!info] Titel und folgende Zeilen mit >. Anhänge mit ihrem tatsächlichen Vault-Pfad referenzieren.
 - Seltenere Syntax steht in Obsidian_Syntax.md im Vault. Lies diese Datei nur, wenn die konkrete Aufgabe erweiterte Syntax braucht."""
+
+# Funktion F: Die Darstellung folgt dem Inhalt, nicht alles wird Fließtext.
+STRUCTURE_INSTRUCTIONS = """Struktur nach Inhalt wählen:
+- kurze Fakten → Stichpunkte; Vergleiche und Eigenschaften mehrerer Dinge → Tabelle;
+- Abläufe und Anleitungen → nummerierte Schritte; größere Themen → ## / ### Überschriften;
+- Begriffe → kurze Definition (**Begriff**: Erklärung); zusammengehörige vorhandene Notizen → [[interne Links]].
+- Fließtext nur für Zusammenhänge und Begründungen. Kurze Absätze, keine leeren Überschriften."""

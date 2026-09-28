@@ -21,6 +21,12 @@ Markdown-Dateien, die du auch mit Obsidian bearbeiten kannst.
   stehen Links auf die verwendeten `.md`-Dateien darunter. Kein Vault-Abgleich
   vor jeder Frage, kürzerer Verlauf, Antwortlänge nach Frage („in 3 Sätzen“).
 - Der Arbeitschat wiederholt keine identischen Such- und Leseaufrufe mehr.
+- **Varianten-Modus:** Schalter „Varianten“ im Arbeitschat. Größere Notizaufträge
+  liefern drei Fassungen – Strikt (nur Vorhandenes), Strukturiert (besser gegliedert),
+  Erweitert (mit Ergänzungen und Verbesserungsvorschlägen). Wählen, dann **Übernehmen**
+  oder **Ändern** mit eigenem Wunsch. Erst die Übernahme schreibt, rücknehmbar.
+- **Saubere Struktur:** Fakten als Stichpunkte, Vergleiche als Tabelle, Abläufe als
+  nummerierte Schritte, Begriffe als Definition, passende interne Links.
 - Häufige Obsidian-Syntax ist fest im Code; erweiterte Syntax steht in der bei Bedarf gelesenen Vault-Datei `Obsidian_Syntax.md`.
 - Antworten lassen sich ohne Dialog als nummerierte Notizen speichern. Uploads landen sofort im Vault und behalten eine Chat-Kopie für die Analyse.
 - Navigation und Einstellungen sind kompakter. Seltene Optionen stehen unter „Erweitert“.

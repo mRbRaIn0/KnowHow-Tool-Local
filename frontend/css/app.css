@@ -878,3 +878,14 @@ mark { background: var(--accent-quiet); color: var(--accent); border-radius: 2px
 .write-preview__editor { font: .85rem/1.5 Consolas, monospace; min-height: 220px; resize: vertical; }
 .write-preview__actions .btn { min-height: 44px; }
 .write-preview [hidden] { display: none; }
+
+/* V1.4 Varianten: Auswahl vor dem Speichern */
+.variant { margin: 10px 0; display: grid; gap: 10px; min-width: 0; }
+.variant__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.variant__tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.variant__tabs .btn.is-active { background: var(--accent-quiet); border-color: var(--accent-line); color: var(--accent); }
+.variant__preview { max-height: 420px; overflow: auto; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--r-sm); }
+.variant--live { opacity: .85; }
+.composer__refine { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; color: var(--accent); }
+.composer__refine[hidden] { display: none; }
+.composer__refine .icon-btn { width: 24px; height: 24px; }

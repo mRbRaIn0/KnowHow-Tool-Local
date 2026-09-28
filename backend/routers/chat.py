@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -20,15 +21,15 @@ from ..knowledge_worker import knowledge_worker
 from contextlib import aclosing
 from ..attachment_analysis import analyse_attachments as _auswerten
 from ..note_templates import list_templates, select_template, template_instruction
-from ..markdown_knowledge import MARKDOWN_INSTRUCTIONS
+from ..markdown_knowledge import MARKDOWN_INSTRUCTIONS, STRUCTURE_INSTRUCTIONS
 from ..knowledge import context_for_prompt, hybrid_search
 from ..tools import (
     ATTACHMENT_TOOLS, BASE_INSTRUCTIONS, EDIT_TOOLS, TOOL_DEFINITIONS, WRITING_TOOLS,
     ToolRunner, canonical_tool_name, clean_generated_text, vault_overview,
 )
-from ..vault import IMAGE_EXT, VaultError, require_root
+from ..vault import IMAGE_EXT, VaultError, create_unique_file, read_text_file, require_root, write_text_file
 from ..vault_guide import ensure_vault_guide, guide_context
-from ..workflow import analyse_request, simple_attachment_archive, simple_root_note
+from ..workflow import analyse_request, note_title, simple_attachment_archive, simple_root_note
 from ..vault_actions import VaultAction, active_action, vault_lock, last_action, undo_last, vault_io
 from ..write_preview import pending as pending_previews, reviewed_call, PreviewCancelled
 from ..vision_batch import VisionBatch, model_lock
@@ -97,6 +98,8 @@ class MessageRequest(BaseModel):
     use_rag: bool = True
     preview_writes: Optional[bool] = None
     source_notes: Optional[bool] = None
+    variants: bool = False
+    variant_base: Optional[Dict[str, int]] = None
 
 
 class PreviewDecision(BaseModel):
@@ -129,6 +132,61 @@ async def undo_vault_action():
                 'Der letzte Vault-Auftrag wurde rückgängig gemacht. Zurückgesetzte Dateien: '
                 + ', '.join(result['paths']))
     return result
+
+
+@router.post('/{chat_id}/variants/apply')
+async def apply_variant(chat_id: str, request: VariantApply):
+    """Übernimmt eine gewählte Variante als rücknehmbaren Vault-Auftrag."""
+    profile = current_profile()
+    database = current_db(profile)
+    chat = database.get_chat(chat_id)
+    if not chat or chat.get('purpose') == 'ask':
+        raise HTTPException(404, {'message': 'Arbeitschat nicht gefunden.', 'kind': 'not_found'})
+    root = current_vault(profile)
+    step = _variant_step(database, chat_id, request.message_id)
+    result = step['result']
+    variants = result.get('varianten') or []
+    if not 0 <= request.index < len(variants):
+        raise HTTPException(400, {'message': 'Unbekannte Variante.', 'kind': 'variant'})
+    content = request.content if request.content is not None else variants[request.index]['inhalt']
+    path = (request.path or result['ziel']).strip().replace('\\', '/')
+    if not path.lower().endswith('.md'):
+        path += '.md'
+    overwrite = not result.get('neu') and path.casefold() == result['ziel'].casefold()
+
+    def write():
+        if overwrite:
+            current = read_text_file(root, path)['content']
+            if _digest(current) != result.get('vorher_hash'):
+                raise ValueError('Die Notiz wurde seit dem Erstellen der Varianten geändert. '
+                                 'Bitte Varianten neu erstellen, damit keine Änderung verloren geht.')
+            return write_text_file(root, path, content, overwrite=True)['path']
+        return create_unique_file(root, path, lambda out: out.write(content.encode('utf-8')))
+
+    lock = vault_lock(root)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, {'message': 'Ein anderer Auftrag bearbeitet diesen Vault gerade.', 'kind': 'busy'})
+    action = VaultAction(root, database.path.parent, chat_id)
+    token = active_action.set(action)
+    try:
+        saved_path = await vault_io(write)
+        await vault_io(action.finish)
+        await vault_io(ensure_vault_guide, root, False)
+    except ValueError as exc:
+        raise HTTPException(409, {'message': str(exc), 'kind': 'variant_conflict'}) from exc
+    except (VaultError, OSError) as exc:
+        raise HTTPException(400, {'message': str(exc), 'kind': 'variant'}) from exc
+    finally:
+        active_action.reset(token)
+        lock.release()
+    from ..tools import invalidate_overview
+    invalidate_overview(root)
+    title = variants[request.index].get('titel', f'Variante {request.index + 1}')
+    database.add_message(chat_id, 'assistant', f'{title} übernommen: [[{saved_path[:-3]}]]',
+                         sources=[{'tool': 'notiz_bearbeiten' if overwrite else 'notiz_erstellen',
+                                   'arguments': {'pfad': saved_path}, 'writing': True, 'ok': True,
+                                   'result': {'bearbeitet' if overwrite else 'erstellt': saved_path}}])
+    return {'path': saved_path, 'overwritten': overwrite}
 
 
 @router.get('/{chat_id}/preview')
@@ -505,6 +563,25 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                 if step.get("tool") == "notiz_lesen" and result.get("pfad") and not result.get('gekuerzt'):
                     runner.read_notes.append(result["pfad"])
 
+    # Varianten nur für größere Schreibaufträge oder eine gewählte Fassung.
+    variant_base = None
+    if request.variant_base and runner is not None:
+        base = VariantBase.model_validate(request.variant_base)
+        base_result = _variant_step(database, chat_id, base.message_id)["result"]
+        if not 0 <= base.index < len(base_result.get("varianten") or []):
+            raise HTTPException(400, {"message": "Unbekannte Variante.", "kind": "variant"})
+        variant_base = {**base_result, "inhalt": base_result["varianten"][base.index]["inhalt"]}
+    variant_mode = runner is not None and not direct and bool(
+        variant_base or (request.variants and (requirements.note_write or requirements.requires_edit)))
+    variant_target: Optional[tuple] = None  # (Pfad, bisheriger Inhalt oder None)
+    if variant_mode and not variant_base:
+        notes = [p for p in (focus.paths or ()) if p.lower().endswith(".md")] if focus else []
+        if len(notes) == 1:
+            try:
+                variant_target = (notes[0], (await asyncio.to_thread(read_text_file, root, notes[0]))["content"])
+            except (VaultError, OSError):
+                variant_target = (notes[0], None)
+
     tools = None
     if runner and "tools" in capabilities:
         tools = list(TOOL_DEFINITIONS)
@@ -874,6 +951,57 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             content_parts.append(label)
             yield _sse({"type": "content", "delta": label})
             _append_to_latest_user(history, NO_VAULT_HIT_INSTRUCTION)
+
+        if variant_mode:
+            if variant_base:
+                target_path, is_new, before_hash = variant_base["ziel"], variant_base["neu"], variant_base.get("vorher_hash")
+                styles = (REFINE_STYLE,)
+            else:
+                target_path, existing = variant_target or (_suggested_note_path(task_content), None)
+                is_new, before_hash, styles = existing is None, _digest(existing), VARIANT_STYLES
+            material = next((m["content"] for m in reversed(history) if m["role"] == "user"), request.content)
+            variants: List[dict] = []
+            try:
+                for index, (title, style, temperature) in enumerate(styles):
+                    yield _sse({"type": "variant_start", "index": index, "title": title})
+                    messages = _variant_messages(
+                        style, vault_guide, material, target_path,
+                        None if variant_base else (variant_target or (None, None))[1],
+                        variant_base["inhalt"] if variant_base else "", request.content)
+                    parts: List[str] = []
+                    async for chunk in client.chat_stream(
+                            model, messages, options={**options, "temperature": temperature},
+                            think=False if "thinking" in capabilities else None):
+                        delta = (chunk.get("message") or {}).get("content")
+                        if delta:
+                            parts.append(delta)
+                            yield _sse({"type": "variant_delta", "index": index, "delta": delta})
+                        if chunk.get("done"):
+                            break
+                    variants.append({"titel": title, "inhalt": _strip_fence("".join(parts))})
+            except OllamaError as exc:
+                completed = True
+                yield _sse({"type": "error", "kind": exc.kind,
+                            "message": persist(f"Variantenerstellung unterbrochen: {exc.message}")})
+                return
+            except (asyncio.CancelledError, GeneratorExit):
+                persist("Variantenerstellung unterbrochen. Es wurde nichts gespeichert.")
+                raise
+            step = {"tool": "varianten", "arguments": {"pfad": target_path}, "writing": False,
+                    "ok": all(item["inhalt"].strip() for item in variants),
+                    "result": {"message_id": assistant["id"], "ziel": target_path, "neu": is_new,
+                               "vorher_hash": before_hash, "varianten": variants}}
+            steps.append(step)
+            yield _sse({"type": "tool_result", **step})
+            summary = (f"Überarbeitete Fassung für `{target_path}` erstellt." if variant_base
+                       else f"{len(variants)} Varianten für `{target_path}` erstellt.")
+            summary += " Noch nichts gespeichert: Variante wählen und übernehmen oder ändern."
+            content_parts.append(summary)
+            yield _sse({"type": "content", "delta": summary})
+            completed = True
+            yield _sse({"type": "done", "message_id": assistant["id"], "content": persist(),
+                        "steps": steps, "changed_files": []})
+            return
 
         try:
             if direct_path and runner:
@@ -1249,6 +1377,84 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
 
 
 
+# Funktion C: Varianten vor größeren Änderungen. Jede Fassung ist ein eigener,
+# werkzeugfreier Modellaufruf ohne Thinking; gespeichert wird erst nach Auswahl.
+VARIANT_STYLES = (
+    ("Variante 1 – Strikt",
+     "VARIANTE STRIKT: Verwende ausschließlich vorhandene Informationen aus Nutzerangaben, bestehender Notiz "
+     "und Anhängen. Keine Ergänzungen, keine neuen Fakten. Inhalt möglichst 1:1 erhalten; nur sauber "
+     "formulieren und klar strukturieren.", 0.2),
+    ("Variante 2 – Strukturiert",
+     "VARIANTE STRUKTURIERT: Vorhandene Informationen verbessern: bessere Sätze, sinnvolle Überschriften, "
+     "Stichpunkte, Tabellen wo passend, interne Links auf genannte Notizen, Dopplungen entfernen. "
+     "Keine neuen Fakten.", 0.4),
+    ("Variante 3 – Erweitert",
+     "VARIANTE ERWEITERT: Stärker mitdenken: sinnvolle Ergänzungen aus allgemeinem Fachwissen, bessere "
+     "Struktur, zusätzliche Zusammenhänge, mögliche Links zu passenden Notizen und am Ende ein kurzer "
+     "Abschnitt '## Verbesserungsvorschläge'. Ergänzungen erkennbar machen (z. B. > [!info] Ergänzung). "
+     "Alle vorhandenen Informationen erhalten; keine konkreten Werte, Kennungen oder Quellen erfinden.", 0.7),
+)
+REFINE_STYLE = (
+    "Überarbeitete Fassung",
+    "ÜBERARBEITUNG: Setze den Änderungswunsch an der gegebenen Fassung genau um. Alles, was der Wunsch nicht "
+    "betrifft, bleibt inhaltlich erhalten.", 0.3,
+)
+VARIANT_SYSTEM = (
+    "Du erstellst genau eine Fassung einer Obsidian-Markdown-Notiz. Gib ausschließlich den vollständigen "
+    "Notizinhalt aus: keine Einleitung, kein Kommentar, kein Codeblock um die gesamte Notiz."
+)
+
+
+class VariantBase(BaseModel):
+    message_id: int
+    index: int
+
+
+class VariantApply(BaseModel):
+    message_id: int
+    index: int
+    path: Optional[str] = None
+    content: Optional[str] = None
+
+
+def _digest(text: Optional[str]) -> Optional[str]:
+    return None if text is None else hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _strip_fence(text: str) -> str:
+    value = clean_generated_text(text)
+    match = re.fullmatch(r"```(?:markdown|md)?\s*\n(.*)\n```", value, re.S | re.I)
+    return (match.group(1) if match else value).strip() + "\n"
+
+
+def _suggested_note_path(task: str) -> str:
+    title = re.sub(r'[\\/:*?"<>|#^\[\]]', "-", note_title(task)).strip(" .-") or "Neue Wissensnotiz"
+    return f"02 KI-Notizen/{title[:80]}.md"
+
+
+def _variant_step(database, chat_id: str, message_id: int) -> dict:
+    row = next((item for item in database.list_messages(chat_id)
+                if item["id"] == message_id and item["role"] == "assistant"), None)
+    step = next((item for item in (row or {}).get("sources") or [] if item.get("tool") == "varianten"), None)
+    if not step:
+        raise HTTPException(404, {"message": "Diese Varianten sind nicht mehr vorhanden.", "kind": "not_found"})
+    return step
+
+
+def _variant_messages(style: str, guide: str, material: str, target: str,
+                      existing: Optional[str], base: str = "", wish: str = "") -> List[dict]:
+    system = "\n\n".join(filter(None, (
+        VARIANT_SYSTEM, style, MARKDOWN_INSTRUCTIONS, STRUCTURE_INSTRUCTIONS,
+        ("REGELN AUS '00 Inhalt.md':\n" + guide[:4000]) if guide else "")))
+    if base:
+        user = f"ZU ÜBERARBEITENDE FASSUNG für `{target}`:\n{base}\n\nÄNDERUNGSWUNSCH:\n{wish}"
+    else:
+        user = f"AUFTRAG UND ANGABEN DES NUTZERS:\n{material}\n\nZIEL: `{target}`"
+        if existing is not None:
+            user += f"\n\nBESTEHENDE NOTIZ (vollständig, alle Informationen erhalten):\n{existing}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
 READ_ONLY_TOOLS = {"vault_suchen", "notiz_lesen", "ordner_auflisten", "anhang_lesen", "bild_ansehen"}
 MAX_SEARCHES = 2
 _SEARCH_COUNT = "#suchen"
@@ -1522,6 +1728,7 @@ def _system_prompt(user_prompt: str, root: Optional[Path], overview: str = "",
     if root is not None:
         teile.append(BASE_INSTRUCTIONS)
         teile.append(MARKDOWN_INSTRUCTIONS)
+        teile.append(STRUCTURE_INSTRUCTIONS)
         if vault_guide:
             teile.append(
                 "VERBINDLICHE VAULT-HAUPTDATEI '00 Inhalt.md':\n"

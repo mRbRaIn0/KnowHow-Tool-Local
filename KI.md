@@ -301,6 +301,13 @@ getrennt:
 - **Kleiner Prompt.** Kein synchroner Vault-Abgleich vor jeder Frage, solange der
   Hintergrundindex läuft; Verlauf auf etwa 8.000 Zeichen und ohne gespeicherte
   Werkzeugprotokolle begrenzt.
+- **Varianten (Arbeitschat).** Mit dem Schalter „Varianten“ erzeugen größere
+  Schreibaufträge drei Fassungen (Strikt: nur vorhandene Informationen; Strukturiert:
+  verbessert ohne neue Fakten; Erweitert: gekennzeichnete Ergänzungen und
+  Verbesserungsvorschläge). Das Modell erhält dabei keine Werkzeuge; gespeichert wird
+  erst nach ausdrücklicher Wahl, als rücknehmbarer Vault-Auftrag mit Konfliktprüfung.
+- **Struktur nach Inhalt.** Stichpunkte, Tabellen, nummerierte Schritte, Überschriften,
+  Definitionen und interne Links je nach Inhalt statt reinem Fließtext.
 - **Arbeitschat.** Identische Lese-, Such- und Bildaufrufe werden innerhalb eines
   Auftrags nicht erneut ausgeführt; höchstens zwei Suchläufe je Auftrag. Nach
   einer Änderung darf dieselbe Notiz wieder frisch gelesen werden.
