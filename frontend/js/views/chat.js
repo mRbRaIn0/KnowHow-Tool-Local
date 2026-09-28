@@ -765,13 +765,6 @@ function composerMeta() {
   elements.thinkToggle = checkbox;
   elements.thinkLabel = think;
   const controls = h('div', { class: 'composer__side' }, select, think);
-  if (activeMode.purpose === 'vault') {
-    elements.previewToggle = h('input', { type: 'checkbox', checked: state.status?.ai?.preview_writes !== false });
-    elements.sourceToggle = h('input', { type: 'checkbox', checked: state.status?.ai?.source_notes !== false });
-    controls.append(
-      h('label', { class: 'composer__option' }, elements.previewToggle, 'Schreibvorschau'),
-      h('label', { class: 'composer__option' }, elements.sourceToggle, 'Bildwissen speichern'));
-  }
   return controls;
 }
 
@@ -903,8 +896,9 @@ async function addFiles(dateien) {
     for (const problem of ergebnis.fehler || []) toast(`${problem.name}: ${problem.grund}`, 'bad');
     if (ergebnis.gespeichert?.length) {
       toast(ergebnis.gespeichert.length === 1
-        ? `${ergebnis.gespeichert[0].name} angehängt.`
-        : `${ergebnis.gespeichert.length} Dateien angehängt.`, 'ok');
+        ? `Im Vault gespeichert: ${ergebnis.gespeichert[0].vault_path}`
+        : `${ergebnis.gespeichert.length} Dateien im Vault gespeichert.`, 'ok');
+      await refreshFileIndex();
     }
   } catch (error) {
     toast(error.message, 'bad');
@@ -940,7 +934,7 @@ function renderChips() {
       vorschau,
       h('span', { class: 'filechip__name', text: item.name }),
       h('button', {
-        class: 'filechip__remove', title: 'Anhang entfernen',
+        class: 'filechip__remove', title: 'Aus dem Chat entfernen (Vault-Datei bleibt)',
         onclick: () => removeAttachment(item.name),
       }, icon('close'))));
   }
@@ -1019,8 +1013,7 @@ function send() {
   stream.send(
     state.activeChatId,
     content.trim() ? content : 'Übernimm die angehängten Dateien in den Vault und dokumentiere ihren Inhalt.',
-    { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked,
-      preview_writes: elements.previewToggle?.checked, source_notes: elements.sourceToggle?.checked },
+    { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked },
   );
 }
 
@@ -1194,42 +1187,16 @@ async function saveAsNote(message) {
     return;
   }
   const title = (elements.chat?.title || 'KI-Antwort').replace(/[\\/:*?"<>|]/g, '-').slice(0, 60);
-  const suggestion = `02 KI-Notizen/${title}.md`;
-  let target;
-  try {
-    target = (await api.uniquePath(suggestion)).path;
-  } catch {
-    target = suggestion;
-  }
-
-  const path = await promptDialog({
-    title: 'Als Obsidian-Notiz speichern',
-    description: 'Die Antwort wird als normale Markdown-Datei im Vault abgelegt.',
-    label: 'Pfad im Vault', value: target, confirmLabel: 'Speichern', mono: true,
-  });
-  if (!path) return;
-
+  const target = `02 KI-Notizen/${title}.md`;
   const stamp = new Date().toISOString().slice(0, 10);
   const body = `# ${title}\n\n${message.content}\n\n---\nQuelle: Chat vom ${stamp} · Modell ${message.model || ''}\n`;
 
   try {
-    await api.writeFile(path, body, false);
-    toast(`Notiz gespeichert: ${path}`, 'ok');
+    const result = await api.writeFile(target, body, false, true);
+    toast(`Notiz gespeichert: ${result.path}`, 'ok');
     await refreshFileIndex();
   } catch (error) {
-    if (error.kind === 'exists') {
-      const ok = await confirmDialog({
-        title: 'Datei überschreiben?',
-        message: `„${path}" existiert bereits. Der bisherige Inhalt geht verloren.`,
-        confirmLabel: 'Überschreiben', danger: true,
-      });
-      if (!ok) return;
-      await api.writeFile(path, body, true);
-      toast(`Notiz überschrieben: ${path}`, 'ok');
-      await refreshFileIndex();
-    } else {
-      toast(error.message, 'bad');
-    }
+    toast(error.message, 'bad');
   }
 }
 

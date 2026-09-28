@@ -252,10 +252,15 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
 .nav__item:hover { background: var(--surface-2); color: var(--text); }
 .nav__item.is-active { background: var(--accent-quiet); color: var(--accent); }
 .nav__item.is-active svg { opacity: 1; }
-.nav__soon {
-  font-family: var(--font-mono); font-size: .5625rem; font-style: normal;
-  color: var(--text-3); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
-}
+.nav__advanced summary, .settings-advanced summary { cursor: pointer; color: var(--text-2); padding: 8px 10px; }
+.nav__advanced summary:hover, .settings-advanced summary:hover { color: var(--text); }
+.nav__advanced summary { display: flex; align-items: center; gap: 10px; list-style: none; }
+.nav__advanced summary::-webkit-details-marker { display: none; }
+.nav__advanced summary svg { width: 17px; height: 17px; }
+.nav__advanced[open] summary svg { transform: rotate(90deg); }
+.nav--nested { padding: 0 0 0 12px; }
+.settings-advanced { margin-top: 12px; border-top: 1px solid var(--line-soft); }
+.settings-advanced > .card { margin-top: 14px; }
 
 .rail__panel { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--line-soft); }
 .rail__panel:empty { border-top: none; }
@@ -843,8 +848,10 @@ mark { background: var(--accent-quiet); color: var(--accent); border-radius: 2px
   .topbar { grid-template-columns: auto minmax(120px, 1fr) auto; }
   .status-rail { display: none; }
   .workspace { grid-template-columns: 62px minmax(0, 1fr); }
-  .nav__item span, .nav__soon { display: none; }
+  .nav__item span, .nav__advanced summary span { display: none; }
   .nav__item { justify-content: center; }
+  .nav__advanced summary { justify-content: center; }
+  .nav--nested { padding-left: 0; }
   .rail__panel { display: none; }
   .rail-contact { display: none; }
   .brand__text { display: none; }

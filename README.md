@@ -1,4 +1,4 @@
-# KnowHow Tool · V1.3
+# KnowHow Tool · V1.4
 
 **Direkte Dateiaktionen:** Fertigen Text mit `Füge diesen Text zu SPS/delete2.md hinzu:`
 und anschließendem Inhalt ohne Modellaufruf ergänzen – auch bei leerer Notiz.
@@ -11,7 +11,13 @@ Die KI läuft über Ollama auf deinem Rechner; Notizen bleiben normale
 Markdown-Dateien, die du auch mit Obsidian bearbeiten kannst.
 
 [Windows-Release](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
-· [KI-Verhalten](KI.md) · [Release V1.3](docs/RELEASE-V1.3.md)
+· [KI-Verhalten](KI.md) · [Release V1.4](docs/RELEASE-V1.4.md)
+
+## Neu in V1.4
+
+- Häufige Obsidian-Syntax ist fest im Code; erweiterte Syntax steht in der bei Bedarf gelesenen Vault-Datei `Obsidian_Syntax.md`.
+- Antworten lassen sich ohne Dialog als nummerierte Notizen speichern. Uploads landen sofort im Vault und behalten eine Chat-Kopie für die Analyse.
+- Navigation und Einstellungen sind kompakter. Seltene Optionen stehen unter „Erweitert“.
 
 ## Neu in V1.3
 

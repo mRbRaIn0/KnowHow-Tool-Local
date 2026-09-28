@@ -111,6 +111,9 @@ async function route() {
   for (const button of el.nav.querySelectorAll('.nav__item')) {
     button.classList.toggle('is-active', button.dataset.nav === current.view);
   }
+  if (['knowledge', 'templates'].includes(current.view)) {
+    el.nav.querySelector('.nav__advanced').open = true;
+  }
 
   try {
     const view = await loadView(viewName);
@@ -160,17 +163,6 @@ function wireChrome() {
   });
 
   document.getElementById('btn-settings').addEventListener('click', () => navigate('/settings'));
-
-  document.getElementById('btn-theme').addEventListener('click', async () => {
-    const order = ['dark', 'light', 'system'];
-    const current = document.documentElement.dataset.themePreference || 'system';
-    const next = order[(order.indexOf(current) + 1) % order.length];
-    applyTheme(next);
-    try {
-      await api.updateUI(next);
-      toast(`Design: ${{ dark: 'Dunkel', light: 'Hell', system: 'System' }[next]}`, 'ok');
-    } catch { /* Design bleibt lokal gesetzt */ }
-  });
 
   const contextButton = document.getElementById('btn-context');
   contextButton.classList.toggle('is-on', state.contextVisible);

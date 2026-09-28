@@ -490,7 +490,8 @@ class ToolRunner:
         return {"treffer": treffer, "anzahl": len(treffer)}
 
     def _notiz_lesen(self, pfad: str = "", offset: int = 0, limit: int = MAX_READ_CHARS, **_: Any) -> Dict[str, Any]:
-        if self.focus and not self.focus.allows(pfad) and pfad not in self.changed_files:
+        if (self.focus and not self.focus.allows(pfad) and pfad not in self.changed_files
+                and pfad.replace("\\", "/").casefold() != "obsidian_syntax.md"):
             return {'fehler': 'Datei liegt außerhalb der erwähnten Ziele. Bitte den konkreten Pfad vom Nutzer nennen lassen.'}
         data = read_text_file(self.root, pfad)
         inhalt = data["content"]
@@ -845,14 +846,19 @@ class ToolRunner:
         stamm = Path(attachments.safe_filename(neuer_name.strip() or quelle.name)).stem
         dateiname = f"{stamm or quelle.stem}{quelle.suffix}"
 
-        with quelle.open("rb") as source:
-            rel = create_unique_file(
-                self.root, f"{ordner}/{dateiname}" if ordner else dateiname,
-                lambda stream: shutil.copyfileobj(source, stream))
+        existing = attachments.vault_paths(self.chat_id).get(quelle.name)
+        if existing and safe_join(self.root, existing).is_file() and not neuer_name \
+                and ordner == self.attachment_dir:
+            rel = existing
+        else:
+            with quelle.open("rb") as source:
+                rel = create_unique_file(
+                    self.root, f"{ordner}/{dateiname}" if ordner else dateiname,
+                    lambda stream: shutil.copyfileobj(source, stream))
+            self._changed(rel)
+            invalidate_overview(self.root)
+            self._refresh_guide()
         ziel = safe_join(self.root, rel)
-        self._changed(rel)
-        invalidate_overview(self.root)
-        self._refresh_guide()
         log.info("Anhang in den Vault übernommen: %s -> %s", quelle.name, rel)
 
         alias = quelle.name.replace("|", "-")

@@ -1,9 +1,4 @@
-"""Anhänge einer Chatnachricht: Ablage, Textextraktion, Übernahme in den Vault.
-
-Angehängte Dateien landen zuerst in einem Zwischenbereich unter
-data/uploads/<chat_id>/. Erst wenn das Modell sie ausdrücklich übernimmt,
-werden sie in den Vault kopiert — das Original bleibt dabei immer erhalten.
-"""
+"""Chat-Anhänge: Vault-Ablage und lokale Kopie für die Auswertung."""
 from __future__ import annotations
 
 import base64
@@ -79,8 +74,9 @@ def resolve(chat_id: str, name: str) -> Path:
     return target
 
 
-def store(chat_id: str, filename: str, data: bytes) -> Dict[str, Any]:
-    """Legt eine hochgeladene Datei im Zwischenbereich ab."""
+def store(chat_id: str, filename: str, data: bytes, vault_root: Optional[Path] = None,
+          vault_dir: str = "90 Anhänge") -> Dict[str, Any]:
+    """Legt den Upload im Vault und eine auswertbare Chat-Kopie ab."""
     if len(data) > MAX_FILE_BYTES:
         raise AttachmentError(
             f"'{filename}' ist mit {len(data) // 1024 // 1024} MB zu groß "
@@ -101,7 +97,21 @@ def store(chat_id: str, filename: str, data: bytes) -> Dict[str, Any]:
         raise AttachmentError("Die Anhänge dieses Chats sind zusammen zu groß.")
 
     relative = create_unique_file(folder, safe_filename(filename), lambda stream: stream.write(data))
-    return describe(folder / relative)
+    item = describe(folder / relative)
+    if vault_root is not None:
+        vault_relative = None
+        try:
+            vault_relative = create_unique_file(
+                vault_root, f"{vault_dir}/{relative}" if vault_dir else relative,
+                lambda stream: stream.write(data))
+            record_vault_path(chat_id, relative, vault_relative)
+            item["vault_path"] = vault_relative
+        except BaseException:
+            if vault_relative:
+                (vault_root / vault_relative).unlink(missing_ok=True)
+            (folder / relative).unlink(missing_ok=True)
+            raise
+    return item
 
 
 def describe(path: Path) -> Dict[str, Any]:
@@ -374,7 +384,26 @@ def pdf_page_image(path: Path, index: int) -> str:
 STATUS_NAME = ".verwendet.json"
 
 # Verwaltungsdateien tauchen nie als Anhang auf.
-INTERNE_DATEIEN = {CACHE_NAME, STATUS_NAME, ".ausgewertet.tmp"}
+VAULT_PATHS_NAME = ".im-vault.json"
+INTERNE_DATEIEN = {CACHE_NAME, STATUS_NAME, VAULT_PATHS_NAME, ".ausgewertet.tmp", ".im-vault.tmp"}
+
+
+def record_vault_path(chat_id: str, name: str, relative: str) -> None:
+    with _CACHE_LOCK:
+        folder = chat_dir(chat_id)
+        paths = vault_paths(chat_id)
+        paths[name] = relative
+        temporary = folder / ".im-vault.tmp"
+        temporary.write_text(json.dumps(paths, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(folder / VAULT_PATHS_NAME)
+
+
+def vault_paths(chat_id: str) -> Dict[str, str]:
+    try:
+        data = json.loads((chat_dir(chat_id) / VAULT_PATHS_NAME).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, AttachmentError):
+        return {}
 
 
 def _status_path(chat_id: str) -> Path:

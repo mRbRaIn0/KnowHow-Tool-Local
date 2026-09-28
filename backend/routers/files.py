@@ -19,7 +19,7 @@ from ..deps import current_profile
 from ..watcher import watcher
 from ..vault_guide import ensure_vault_guide
 from ..vault import (
-    VaultError, build_tree, create_dir, delete_entry, iter_files, kind_for,
+    VaultError, build_tree, create_dir, create_unique_file, delete_entry, iter_files, kind_for,
     list_dir, move_entry, read_text_file, recent_files, rename_entry, safe_join,
     to_relative, unique_path, write_text_file,
 )
@@ -95,15 +95,21 @@ class WriteRequest(BaseModel):
     path: str
     content: str
     overwrite: bool = True
+    auto_number: bool = False
 
 
 @router.post("/write")
 async def write_file(request: WriteRequest) -> Dict[str, Any]:
     root = current_vault()
     try:
-        result = await asyncio.to_thread(
-            write_text_file, root, request.path, request.content, request.overwrite
-        )
+        if request.auto_number:
+            path = await asyncio.to_thread(create_unique_file, root, request.path,
+                                           lambda out: out.write(request.content.encode("utf-8")))
+            result = {"path": path, "created": True}
+        else:
+            result = await asyncio.to_thread(
+                write_text_file, root, request.path, request.content, request.overwrite
+            )
         await asyncio.to_thread(ensure_vault_guide, root, False)
         return result
     except FileExistsError as exc:

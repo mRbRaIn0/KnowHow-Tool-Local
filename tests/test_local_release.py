@@ -51,6 +51,7 @@ def test_immediate_question_gets_new_local_information(tmp_path, monkeypatch):
     monkeypatch.setattr(chat, "current_profile", lambda: profile)
     monkeypatch.setattr(chat, "current_db", lambda profile=None: db)
     monkeypatch.setattr(uploads, "current_db", lambda profile=None: db)
+    monkeypatch.setattr(uploads, "current_profile", lambda: profile)
     monkeypatch.setattr(chat, "current_ollama", lambda profile=None: LocalModel())
     monkeypatch.setattr(attachments, "UPLOAD_DIR", tmp_path / "uploads")
     client = TestClient(main.app, base_url="http://127.0.0.1",
@@ -61,6 +62,7 @@ def test_immediate_question_gets_new_local_information(tmp_path, monkeypatch):
             "files": ("source.txt", b"Zephyr hat Kennung ZP-731.", "text/plain")})
         assert upload.status_code == 200
         assert len(upload.json()["gespeichert"]) == 1
+        assert (tmp_path / upload.json()["gespeichert"][0]["vault_path"]).read_bytes() == b"Zephyr hat Kennung ZP-731."
         write = client.post("/api/files/write", json={
             "path": "Zephyr.md", "content": "Zephyr hat Kennung ZP-731."})
         assert write.status_code == 200

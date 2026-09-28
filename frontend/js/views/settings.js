@@ -41,9 +41,11 @@ function render(view, contextHost) {
     profilesCard(view, contextHost),
     ollamaCard(profile, view),
     dataCard(profile, view),
-    aiCard(profile),
-    privacyCard(profile),
-    appearanceCard(),
+    h('details', { class: 'settings-advanced' },
+      h('summary', { text: 'Erweitert' }),
+      aiCard(profile),
+      privacyCard(profile),
+      appearanceCard()),
   );
   renderContext(contextHost);
 }
@@ -136,34 +138,36 @@ function ollamaCard(profile, view) {
 
   return h('div', { class: 'card', style: 'margin-bottom:14px' },
     h('div', { class: 'card__title' }, h('span', { class: 'label', text: 'Ollama' })),
-    field('Server', 'Nur lokale Adressen, solange der Offline-Modus aktiv ist.',
-      h('input', {
-        class: 'input input--mono', value: profile.ollama.base_url,
-        onchange: (event) => patch({ ollama: { base_url: event.target.value.trim() } }),
-      })),
     field('Chat-Modell', 'Wird für Chats, Zusammenfassungen und Bildanalyse verwendet.',
       h('div', { class: 'row' }, chatSelect,
         missing
           ? h('button', { class: 'btn btn--sm btn--primary', onclick: () => pullModel(profile.ollama.chat_model, view) },
             'Herunterladen')
           : null)),
-    field('Modell im Speicher halten', 'Vermeidet erneutes Laden zwischen Anfragen. Datei-Direktaktionen benötigen kein Modell.',
-      h('input', { class: 'input input--mono', value: profile.ollama.keep_alive || '10m',
-        placeholder: '10m', pattern: '0|[1-9][0-9]*[smh]',
-        onchange: (event) => {
-          if (event.target.reportValidity()) patch({ ollama: { keep_alive: event.target.value } });
-        } })),
-    field('Embedding-Modell', 'Erzeugt die lokalen Vektoren für die semantische Wissenssuche.',
-      h('div', { class: 'row' }, embedSelect,
-        h('button', {
-          class: 'btn btn--sm',
-          onclick: () => pullModel(profile.ollama.embed_model || 'nomic-embed-text', view),
-        }, 'Herunterladen'))),
-    models.length
-      ? h('p', { class: 'field__hint', text: `${models.length} Modelle lokal installiert.` })
-      : h('p', { class: 'field__hint', text: 'Keine Modelle gefunden — läuft Ollama?' }),
-    h('p', { class: 'field__hint', style: 'margin-top:10px',
-      text: 'Stand 11.09.2026: Standard ist qwen3.5:9b (neue Profile: Thinking aus für schnellere Antworten) — Allrounder mit Deutsch, Werkzeugen und Bildern, braucht etwa 8 GB. qwen3.5:4b ist schneller, aber schwächer. qwen3-vl:8b eignet sich extra für Fotos und Scans, ersetzt den 9B-Allrounder nicht. nomic-embed-text ist nur die Suche, kein Chat. Chats liegen im Ordner data neben der EXE; bei Updates diesen Ordner behalten.' }));
+    h('details', { class: 'settings-advanced' },
+      h('summary', { text: 'Modelloptionen' }),
+      field('Server', 'Nur lokale Adressen, solange der Offline-Modus aktiv ist.',
+        h('input', {
+          class: 'input input--mono', value: profile.ollama.base_url,
+          onchange: (event) => patch({ ollama: { base_url: event.target.value.trim() } }),
+        })),
+      field('Modell im Speicher halten', 'Vermeidet erneutes Laden zwischen Anfragen. Datei-Direktaktionen benötigen kein Modell.',
+        h('input', { class: 'input input--mono', value: profile.ollama.keep_alive || '10m',
+          placeholder: '10m', pattern: '0|[1-9][0-9]*[smh]',
+          onchange: (event) => {
+            if (event.target.reportValidity()) patch({ ollama: { keep_alive: event.target.value } });
+          } })),
+      field('Embedding-Modell', 'Erzeugt die lokalen Vektoren für die semantische Wissenssuche.',
+        h('div', { class: 'row' }, embedSelect,
+          h('button', {
+            class: 'btn btn--sm',
+            onclick: () => pullModel(profile.ollama.embed_model || 'nomic-embed-text', view),
+          }, 'Herunterladen'))),
+      models.length
+        ? h('p', { class: 'field__hint', text: `${models.length} Modelle lokal installiert.` })
+        : h('p', { class: 'field__hint', text: 'Keine Modelle gefunden — läuft Ollama?' }),
+      h('p', { class: 'field__hint', style: 'margin-top:10px',
+        text: 'Standard ist qwen3.5:9b; qwen3.5:4b ist schneller. nomic-embed-text dient nur der Suche.' })));
 }
 
 function modelSelect(value, onChange, allowEmpty = false) {
@@ -206,22 +210,24 @@ function dataCard(profile, view) {
             } catch (error) { toast(error.message, 'bad'); }
           },
         }, icon('folder-open'), 'Auswählen'))),
-    field('Vault-Hauptseite', 'Steuert Stil, Emoji-Nutzung, Ablage, Links und enthält den automatisch gepflegten Ordner- und Dateiüberblick.',
-      h('input', {
-        class: 'input input--mono', value: '00 Inhalt.md', disabled: true,
-      })),
-    field('Anhänge', 'Zielordner für Bilder und Dateien, die die App ablegt.',
-      h('input', {
-        class: 'input input--mono', value: profile.vault.attachments_dir,
-        onchange: (event) => patch({ vault: { attachments_dir: event.target.value.trim() } }),
-      })),
-    field('Vorlagen', 'Ordner mit deinen Markdown-Vorlagen.',
-      h('input', {
-        class: 'input input--mono', value: profile.vault.templates_dir,
-        onchange: (event) => patch({ vault: { templates_dir: event.target.value.trim() } }),
-      })),
-    field('Backup', 'Erstellt eine lokale ZIP-Datei mit Vault, Profil und konsistenter Chatdatenbank.',
-      backupControl()));
+    h('details', { class: 'settings-advanced' },
+      h('summary', { text: 'Vaultoptionen und Backup' }),
+      field('Vault-Hauptseite', 'Steuert Stil, Emoji-Nutzung, Ablage, Links und enthält den automatisch gepflegten Ordner- und Dateiüberblick.',
+        h('input', {
+          class: 'input input--mono', value: '00 Inhalt.md', disabled: true,
+        })),
+      field('Anhänge', 'Zielordner für Bilder und Dateien, die die App ablegt.',
+        h('input', {
+          class: 'input input--mono', value: profile.vault.attachments_dir,
+          onchange: (event) => patch({ vault: { attachments_dir: event.target.value.trim() } }),
+        })),
+      field('Vorlagen', 'Ordner mit deinen Markdown-Vorlagen.',
+        h('input', {
+          class: 'input input--mono', value: profile.vault.templates_dir,
+          onchange: (event) => patch({ vault: { templates_dir: event.target.value.trim() } }),
+        })),
+      field('Backup', 'Erstellt eine lokale ZIP-Datei mit Vault, Profil und konsistenter Chatdatenbank.',
+        backupControl())));
 }
 
 function backupControl() {
@@ -275,8 +281,6 @@ function aiCard(profile) {
         value: String(profile.ai.rag_top_k),
         onchange: (event) => patch({ ai: { rag_top_k: Number(event.target.value) } }),
       })),
-    toggle('Gedankengang anzeigen', 'Zeigt den Denkprozess des Modells, sofern es ihn unterstützt.',
-      profile.ai.thinking, (checked) => patch({ ai: { thinking: checked } })),
     toggle('Schreibvorschau', 'Notizen vor dem Speichern als Alt → Neu prüfen, anpassen oder abbrechen.',
       profile.ai.preview_writes, (checked) => patch({ ai: { preview_writes: checked } })),
     toggle('Bild- und Scanwissen suchbar speichern', 'Erstellt Quellennotizen in 91 Quellenwissen mit Original-Link, OCR und Seitenangaben. „Nur ansehen“ bleibt ohne Vault-Ablage.',
@@ -304,12 +308,7 @@ function privacyCard(profile) {
     toggle('Offline-Modus', 'Erlaubt ausschließlich Verbindungen zu 127.0.0.1 und localhost.',
       profile.privacy.offline_mode, (checked) => patch({ privacy: { offline_mode: checked } })),
     toggle('Externe Links blockieren', 'Links auf http(s)-Adressen in Notizen werden nicht anklickbar dargestellt.',
-      profile.privacy.block_external_urls, (checked) => patch({ privacy: { block_external_urls: checked } })),
-    h('div', { class: 'switch', style: 'opacity:.6;cursor:default' },
-      h('span', { class: 'switch__track' }),
-      h('span', { class: 'switch__text' },
-        h('span', { text: 'Telemetrie' }),
-        h('small', { text: 'Dauerhaft aus. Die App sendet keine Nutzungsdaten — es gibt keinen Empfänger.' }))));
+      profile.privacy.block_external_urls, (checked) => patch({ privacy: { block_external_urls: checked } })));
 }
 
 /* ------------------------------------------------------- Oberfläche */

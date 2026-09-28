@@ -83,7 +83,7 @@ export const api = {
   tree: (path = '', depth = 2) => api.get('/api/files/tree', { path, depth }),
   listFolder: (path = '') => api.get('/api/files/list', { path }),
   readFile: (path) => api.get('/api/files/read', { path }),
-  writeFile: (path, content, overwrite = true) => api.post('/api/files/write', { path, content, overwrite }),
+  writeFile: (path, content, overwrite = true, auto_number = false) => api.post('/api/files/write', { path, content, overwrite, auto_number }),
   mkdir: (path) => api.post('/api/files/mkdir', { path }),
   renameEntry: (path, name) => api.post('/api/files/rename', { path, name }),
   moveEntry: (path, target_dir) => api.post('/api/files/move', { path, target_dir }),

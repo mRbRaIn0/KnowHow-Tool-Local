@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
-from .vault import IGNORED_DIRS, is_supported, kind_for, safe_join, to_relative, write_text_file
+from .config import BUNDLE_ROOT
+from .vault import IGNORED_DIRS, create_unique_file, is_supported, kind_for, safe_join, to_relative, write_text_file
 
 
 GUIDE_PATH = "00 Inhalt.md"
@@ -92,6 +93,12 @@ beauftragt werden, zum Beispiel: „Ändere in 00 Inhalt Emojis auf Ja“ oder
 
 def ensure_vault_guide(root: Path, create: bool = True, refresh: bool = True) -> Dict[str, object]:
     """Legt die Hauptseite einmalig an und aktualisiert nur ihren Indexblock."""
+    if create and not safe_join(root, "Obsidian_Syntax.md").exists():
+        reference = (BUNDLE_ROOT / "assets" / "Obsidian_Syntax.md").read_bytes()
+        try:
+            create_unique_file(root, "Obsidian_Syntax.md", lambda out: out.write(reference), exact=True)
+        except FileExistsError:
+            pass
     target = safe_join(root, GUIDE_PATH)
 
     if not target.exists():

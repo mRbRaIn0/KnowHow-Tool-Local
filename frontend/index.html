@@ -80,9 +80,6 @@
     </div>
 
     <div class="topbar__actions">
-      <button class="icon-btn" id="btn-theme" type="button" title="Design wechseln" aria-label="Design wechseln">
-        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
-      </button>
       <button class="icon-btn" id="btn-context" type="button" title="Kontextspalte ein-/ausblenden" aria-label="Kontextspalte">
         <svg><use href="#i-panel"/></svg>
       </button>
@@ -99,14 +96,19 @@
         <li><button data-nav="chat" class="nav__item"><svg><use href="#i-chat"/></svg><span>Wissen erweitern</span></button></li>
         <li><button data-nav="ask" class="nav__item"><svg><use href="#i-question"/></svg><span>Wissen fragen</span></button></li>
         <li><button data-nav="files" class="nav__item"><svg><use href="#i-files"/></svg><span>Dateien</span></button></li>
-        <li><button data-nav="knowledge" class="nav__item"><svg><use href="#i-knowledge"/></svg><span>Wissen</span></button></li>
         <li><button data-nav="images" class="nav__item"><svg><use href="#i-image"/></svg><span>Bilder</span></button></li>
         <li><button data-nav="notes" class="nav__item"><svg><use href="#i-note"/></svg><span>Notizen</span></button></li>
-        <li><button data-nav="templates" class="nav__item"><svg><use href="#i-template"/></svg><span>Vorlagen</span></button></li>
+        <li><details class="nav__advanced">
+          <summary title="Erweitert"><svg><use href="#i-chevron"/></svg><span>Erweitert</span></summary>
+          <ul class="nav nav--nested">
+            <li><button data-nav="knowledge" class="nav__item"><svg><use href="#i-knowledge"/></svg><span>Wissen</span></button></li>
+            <li><button data-nav="templates" class="nav__item"><svg><use href="#i-template"/></svg><span>Vorlagen</span></button></li>
+          </ul>
+        </details></li>
       </ul>
       <div class="rail__panel" id="rail-panel"></div>
       <footer class="rail-contact" aria-label="Produktversion">
-        <span class="rail-contact__version">Version 1.3</span>
+        <span class="rail-contact__version">Version 1.4</span>
       </footer>
     </nav>
 

@@ -139,8 +139,9 @@ def test_history_keeps_current_task_and_paths_without_old_write_payload(tmp_path
 def test_markdown_rules_are_available_offline_and_thinking_stays_optional(tmp_path):
     prompt = chat._system_prompt('', tmp_path)
     assert MARKDOWN_INSTRUCTIONS in prompt
-    assert '[[Ordner/Notiz#^block-id]]' in prompt
-    assert '| --- | --- |' in prompt
+    assert '[[Ordner/Notiz]]' in prompt
+    assert 'Obsidian_Syntax.md' in prompt
+    assert '[[Ordner/Notiz#^block-id]]' not in prompt
     assert AISettings().thinking is False
     assert AISettings(thinking=True).thinking is True
 

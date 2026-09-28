@@ -30,6 +30,7 @@ a = Analysis(
     datas=[
         ('frontend', 'frontend'),
         ('templates', 'templates'),
+        ('assets/Obsidian_Syntax.md', 'assets'),
         ('config.example.json', '.'),
         ('LICENSE', '.'),
         ('THIRD_PARTY_NOTICES.txt', '.'),

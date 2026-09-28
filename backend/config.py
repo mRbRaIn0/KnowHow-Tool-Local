@@ -104,7 +104,6 @@ class AISettings(BaseModel):
 class PrivacySettings(BaseModel):
     offline_mode: bool = True
     block_external_urls: bool = True
-    telemetry: bool = False
 
 
 class VaultSettings(BaseModel):

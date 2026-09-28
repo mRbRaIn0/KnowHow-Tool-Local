@@ -1,7 +1,6 @@
 """Anhänge hochladen, auflisten und wieder entfernen.
 
-Die Dateien landen in einem Zwischenbereich je Chat. In den Vault kommen sie
-erst, wenn das Modell sie ausdrücklich übernimmt.
+Die Dateien landen sofort im Vault; eine Chat-Kopie dient der Analyse.
 """
 from __future__ import annotations
 
@@ -14,7 +13,8 @@ from fastapi.responses import FileResponse
 
 from .. import attachments
 from ..attachments import AttachmentError
-from ..deps import current_db
+from ..deps import current_db, current_profile, current_vault
+from ..vault import VaultError
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
@@ -48,6 +48,9 @@ async def upload(chat_id: str, files: List[UploadFile] = File(...)) -> Dict[str,
     if not files:
         raise HTTPException(400, {"message": "Es wurden keine Dateien übergeben.", "kind": "empty"})
 
+    profile = current_profile()
+    root = current_vault(profile)
+
     gespeichert: List[dict] = []
     fehler: List[dict] = []
 
@@ -55,10 +58,11 @@ async def upload(chat_id: str, files: List[UploadFile] = File(...)) -> Dict[str,
         try:
             data = await upload_file.read()
             item = await asyncio.to_thread(
-                attachments.store, chat_id, upload_file.filename or "datei", data
+                attachments.store, chat_id, upload_file.filename or "datei", data,
+                root, profile.vault.attachments_dir,
             )
             gespeichert.append(item)
-        except AttachmentError as exc:
+        except (AttachmentError, VaultError) as exc:
             fehler.append({"name": upload_file.filename, "grund": str(exc)})
         except OSError as exc:
             log.warning("Anhang %s konnte nicht gespeichert werden: %s", upload_file.filename, exc)
