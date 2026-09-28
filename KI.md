@@ -281,6 +281,30 @@ getrennt:
 - Das Notiz-Speichern-Symbol wird im Fragen-Chat nicht angeboten, damit der
   sichtbare Bedienweg der serverseitigen Leseberechtigung entspricht.
 
+### V1.4: Geschwindigkeit und Richtigkeit
+
+- **Nur bedeutungstragende Suchwörter.** Füll- und Fragewörter („was“, „ist“,
+  „erkläre“, „in 3 Sätzen“) und einzelne Ziffern werden vor der Suche entfernt.
+  Kennungen wie `S7`, `ZX-731` oder `KI` bleiben erhalten. Ohne Suchbegriff
+  (z. B. „1 + 2“) werden weder Index noch Embedding-Modell angefasst.
+- **Relevanzschwelle.** Ein Treffer zählt nur, wenn er bei einem Begriff diesen,
+  bei mehreren mindestens die Hälfte enthält oder semantisch sehr ähnlich ist
+  (Kosinus ≈ 0,6). Ausdrücklich genannte Dateien werden nie herausgefiltert.
+- **Kein Treffer.** Die Anwendung selbst setzt `Kein Eintrag gefunden – KI-Wissen:`
+  vor die Antwort und weist das Modell an, direkt aus allgemeinem Wissen zu
+  antworten. Wiederholt das Modell die Kennzeichnung, wird sie entfernt.
+- **Quellenlinks.** Verlinkt eine Antwort keine der verwendeten Vault-Dateien,
+  hängt die Anwendung `Quellen: [[Pfad]]` an (höchstens fünf, ohne Dubletten).
+- **Antwortlänge.** Direkt, ohne Einleitung; Länge nach Frage, ausdrücklicher
+  Vorgabe und Menge relevanter Vault-Informationen. Form nach Inhalt
+  (Stichpunkte, Tabelle, Schritte, Definition).
+- **Kleiner Prompt.** Kein synchroner Vault-Abgleich vor jeder Frage, solange der
+  Hintergrundindex läuft; Verlauf auf etwa 8.000 Zeichen und ohne gespeicherte
+  Werkzeugprotokolle begrenzt.
+- **Arbeitschat.** Identische Lese-, Such- und Bildaufrufe werden innerhalb eines
+  Auftrags nicht erneut ausgeführt; höchstens zwei Suchläufe je Auftrag. Nach
+  einer Änderung darf dieselbe Notiz wieder frisch gelesen werden.
+
 ---
 
 ## `00 Inhalt.md` als Hauptseite jedes Vaults

@@ -156,6 +156,7 @@ class SearchIndex:
                             continue
                         entry = candidates.setdefault(row["id"], [0, dict(row)])
                         entry[0] += 1.5 / (30 + rank)
+                        entry[1]["distance"] = row["distance"]
         out = []
         for score, item in sorted(candidates.values(), key=lambda x: x[0], reverse=True)[:limit]:
             content = item["content"]
@@ -166,6 +167,7 @@ class SearchIndex:
                 "page": item["page"], "content": content,
                 "snippet": content[max(0, position - 80):position + 350],
                 "score": round(min(1, score * 12), 4),
+                "distance": item.get("distance"),
             })
         return out
 

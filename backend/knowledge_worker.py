@@ -27,6 +27,11 @@ class KnowledgeWorker:
         self.thread = threading.Thread(target=self.run, daemon=True, name="vault-index")
         self.thread.start()
 
+    def active(self) -> bool:
+        """Hält der Hintergrundlauf den Index aktuell? Dann braucht eine Frage keinen Abgleich."""
+        return bool(self.thread and self.thread.is_alive()
+                    and not self.paused.is_set() and not self.stopped.is_set())
+
     def pause(self):
         self.paused.set()
         with self._lock:

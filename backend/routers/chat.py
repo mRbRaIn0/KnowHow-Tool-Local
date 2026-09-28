@@ -569,10 +569,14 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
     # und direkt in den Verlauf gestellt.
     history_error = ""
     try:
+        # Fragen brauchen nur den jüngsten Gesprächsverlauf: Ein kleiner Prompt
+        # wird lokal deutlich schneller verarbeitet.
         history = _build_history(database, chat_id, system_prompt,
-                                 max_chars=max(6000, profile.ai.num_ctx * 2),
+                                 max_chars=(min(8000, max(4000, profile.ai.num_ctx)) if question_mode
+                                            else max(6000, profile.ai.num_ctx * 2)),
                                  preserve_user_inputs=not question_mode,
-                                 focus=focus if not question_mode else None) if not direct else []
+                                 focus=focus if not question_mode else None,
+                                 include_work_state=not question_mode) if not direct else []
     except UserInputContextTooLarge as exc:
         history, history_error = [], str(exc)
     if focus and focus.ambiguous:
@@ -612,6 +616,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         correction_rounds = 0
         last_draft = ""
         limit_reached = False
+        seen_calls: Dict[str, int] = {}
 
         last_checkpoint = 0.0
 
@@ -726,8 +731,11 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     root, database, request.content, client,
                     profile.ollama.embed_model, profile.ai.rag_top_k,
                     excluded_dirs=(profile.vault.templates_dir,),
-                    refresh=question_mode,
+                    # Der Hintergrundindex hält den Vault aktuell; ein
+                    # vollständiger Abgleich vor jeder Frage kostet nur Zeit.
+                    refresh=question_mode and not knowledge_worker.active(),
                     focus=focus,
+                    relevant_only=question_mode,
                 )
                 rag_context = context_for_prompt(rag_result)
                 if rag_context:
@@ -852,6 +860,20 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             steps.append(rag_step)
             yield _sse({"type": "tool_result", **rag_step})
 
+        vault_hits = rag_result.get("results") or []
+        if question_mode and not vault_hits:
+            # Die Kennzeichnung setzt der Code, nicht das Modell: So ist immer
+            # eindeutig, ob die Antwort aus dem eigenen Wissen stammt.
+            if root is not None:
+                empty_step = {"tool": "wissenssuche", "arguments": {"query": request.content},
+                              "result": {"anzahl": 0, "hinweis": "Kein passender Eintrag im Vault"},
+                              "writing": False, "ok": True}
+                steps.append(empty_step)
+                yield _sse({"type": "tool_result", **empty_step})
+            label = NO_VAULT_HIT_LABEL + "\n\n"
+            content_parts.append(label)
+            yield _sse({"type": "content", "delta": label})
+            _append_to_latest_user(history, NO_VAULT_HIT_INSTRUCTION)
 
         try:
             if direct_path and runner:
@@ -1055,11 +1077,14 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     arguments = function.get("arguments") or {}
                     yield _sse({"type": "tool_start", "tool": name, "arguments": arguments})
 
-                    async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: runner.run(name, arguments)):
-                        if "preview" in reviewed:
-                            yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
-                        else:
-                            result = reviewed["result"]
+                    result = _repeated_call(name, arguments, seen_calls)
+                    if result is None:
+                        async for reviewed in reviewed_call(runner, profile.id, chat_id, lambda: runner.run(name, arguments)):
+                            if "preview" in reviewed:
+                                yield _sse({"type": "write_preview", "preview": reviewed["preview"]})
+                            else:
+                                result = reviewed["result"]
+                        _remember_call(name, arguments, result, seen_calls)
                     step = {
                         "tool": name,
                         "arguments": arguments,
@@ -1171,6 +1196,13 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                 confirmation = _change_confirmation(runner.changed_files)
                 content_parts.append("\n\n" + confirmation)
                 yield _sse({"type": "content", "delta": "\n\n" + confirmation})
+            if question_mode:
+                answer = _without_repeated_label("".join(content_parts))
+                sources = _source_links(answer, vault_hits) if vault_hits else ""
+                if sources:
+                    answer = answer.rstrip() + "\n\n" + sources
+                    yield _sse({"type": "content", "delta": "\n\n" + sources})
+                content_parts[:] = [answer]
             if not "".join(content_parts).strip():
                 content_parts.append(_work_status(runner, "Keine abschließende Modellantwort erhalten."))
             completed = True
@@ -1215,6 +1247,40 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
     return response
 
 
+
+
+READ_ONLY_TOOLS = {"vault_suchen", "notiz_lesen", "ordner_auflisten", "anhang_lesen", "bild_ansehen"}
+MAX_SEARCHES = 2
+_SEARCH_COUNT = "#suchen"
+
+
+def _call_key(name: str, arguments: Any) -> str:
+    return name + "\0" + json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _repeated_call(name: str, arguments: Any, seen: Dict[str, int]) -> Optional[dict]:
+    """Wiederholte Lese- und Suchaufrufe kosten eine volle Modellrunde, bringen aber nichts Neues."""
+    if name not in READ_ONLY_TOOLS:
+        return None
+    if _call_key(name, arguments) in seen:
+        return {"hinweis": "Bereits mit denselben Angaben ausgeführt. Das Ergebnis steht oben im Verlauf; "
+                           "nicht erneut aufrufen, sondern damit weiterarbeiten."}
+    if name == "vault_suchen" and seen.get(_SEARCH_COUNT, 0) >= MAX_SEARCHES:
+        return {"hinweis": "Suchlimit erreicht. Mit den vorhandenen Treffern arbeiten oder nur den konkreten Pfad erfragen."}
+    return None
+
+
+def _remember_call(name: str, arguments: Any, result: dict, seen: Dict[str, int]) -> None:
+    if "fehler" in (result or {}):
+        return
+    if name in WRITING_TOOLS:
+        # Nach einer Änderung darf eine Notiz wieder frisch gelesen werden.
+        for key in [key for key in seen if key.startswith("notiz_lesen\0")]:
+            del seen[key]
+    elif name in READ_ONLY_TOOLS:
+        seen[_call_key(name, arguments)] = 1
+        if name == "vault_suchen":
+            seen[_SEARCH_COUNT] = seen.get(_SEARCH_COUNT, 0) + 1
 
 
 def _anhang_kontext(items: List[dict], cache: dict) -> str:
@@ -1493,7 +1559,54 @@ def _question_system_prompt(user_prompt: str) -> str:
         "geändert, verschoben oder gelöscht zu haben. Für solche Aufträge verweise "
         "auf den getrennten Bereich 'Wissen erweitern'."
     )
+    teile.append(ANSWER_RULES)
     return "\n\n".join(teile)
+
+
+# Richtigkeit und Tempo vor Ausführlichkeit: Die Länge folgt der Frage, nicht
+# der Menge des mitgeschickten Kontexts.
+ANSWER_RULES = (
+    "ANTWORTREGELN:\n"
+    "- Beantworte genau die gestellte Frage, direkt im ersten Satz, ohne Einleitung und ohne die Frage zu wiederholen.\n"
+    "- Länge nach Frage, ausdrücklichen Vorgaben (\"in 3 Sätzen\" heißt genau drei Sätze) und der Menge wirklich "
+    "relevanter Vault-Informationen. Einfache Fragen erhalten eine kurze Antwort.\n"
+    "- Richtigkeit vor Ausführlichkeit: nichts erfinden, Unsicherheit offen benennen.\n"
+    "- Verwendete Vault-Inhalte mit ihrem WikiLink [[Pfad/Datei]] belegen.\n"
+    "- Form nach Inhalt: kurze Fakten als Stichpunkte, Vergleiche als Tabelle, Abläufe als nummerierte Schritte, "
+    "Begriffe als kurze Definition. Kein unnötiger Fließtext."
+)
+
+NO_VAULT_HIT_LABEL = "Kein Eintrag gefunden – KI-Wissen:"
+NO_VAULT_HIT_INSTRUCTION = (
+    "HINWEIS DER ANWENDUNG: Im lokalen Vault gibt es zu dieser Frage keinen passenden Eintrag. "
+    "Antworte direkt aus allgemeinem Wissen. Die Kennzeichnung '" + NO_VAULT_HIT_LABEL + "' steht "
+    "bereits vor deiner Antwort; wiederhole sie nicht und nenne keine Vault-Quellen."
+)
+
+
+def _without_repeated_label(text: str) -> str:
+    """Das Modell wiederholt die vorangestellte Kennzeichnung gelegentlich."""
+    head, _, rest = text.partition("\n\n")
+    if head != NO_VAULT_HIT_LABEL:
+        return text
+    body = re.sub(r"^\s*\**\s*kein eintrag gefunden\s*[–-]\s*ki-wissen:?\s*\**\s*", "", rest, flags=re.I)
+    return head + "\n\n" + body
+
+
+def _source_links(text: str, results: List[dict]) -> str:
+    """Quellenzeile, falls die Antwort keine der verwendeten Vault-Dateien verlinkt."""
+    def norm(value: str) -> str:
+        value = value.split("|", 1)[0].split("#", 1)[0].strip().replace("\\", "/").casefold()
+        return value[:-3] if value.endswith(".md") else value
+
+    cited = {norm(link) for link in re.findall(r"\[\[([^\]]+)\]\]", text)}
+    paths = list(dict.fromkeys(item["path"] for item in results if item.get("path")))
+    for path in paths:
+        target = norm(path)
+        if target in cited or target.rsplit("/", 1)[-1] in cited:
+            return ""
+    links = [f"[[{path[:-3] if path.lower().endswith('.md') else path}]]" for path in paths[:5]]
+    return ("Quellen: " + " · ".join(links)) if links else ""
 
 
 async def _batch_analyse(events, batch):
@@ -1516,14 +1629,16 @@ class UserInputContextTooLarge(ValueError):
 
 def _build_history(database, chat_id: str, system_prompt: str,
                    attachment_note: str = "", max_chars: int = 16000,
-                   preserve_user_inputs: bool = False, focus=None) -> List[Dict[str, Any]]:
+                   preserve_user_inputs: bool = False, focus=None,
+                   include_work_state: bool = True) -> List[Dict[str, Any]]:
     """Baut die Nachrichtenliste für Ollama inklusive Bildanhängen."""
     messages: List[Dict[str, Any]] = []
     if system_prompt.strip():
         messages.append({"role": "system", "content": system_prompt.strip()})
 
     for row in database.list_messages(chat_id):
-        if row["role"] == "assistant" and not row["content"].strip() and not row.get("sources"):
+        if row["role"] == "assistant" and not row["content"].strip() and (
+                not row.get("sources") or not include_work_state):
             continue  # leere Platzhalter (z. B. abgebrochene Antworten) überspringen
         if row['role'] == 'assistant' and focus and focus.paths is not None:
             relevant = []
@@ -1554,7 +1669,7 @@ def _build_history(database, chat_id: str, system_prompt: str,
             message["images"] = images
         if extra_text:
             message["content"] = message["content"] + "".join(extra_text)
-        if row["role"] == "assistant" and row.get("sources"):
+        if row["role"] == "assistant" and row.get("sources") and include_work_state:
             # Alte vollständige Schreibargumente/Leseresultate vervielfachten den
             # Kontext. Pfade und Status genügen; Inhalte bei Bedarf frisch lesen.
             verified = [{"tool": step.get("tool"),

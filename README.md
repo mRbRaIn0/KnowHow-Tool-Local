@@ -15,6 +15,12 @@ Markdown-Dateien, die du auch mit Obsidian bearbeiten kannst.
 
 ## Neu in V1.4
 
+- **Schnellere, ehrlichere Antworten in „Wissen fragen“:** Die Suche ignoriert
+  Füllwörter und schickt nur wirklich passende Auszüge an die KI. Ohne Treffer
+  beginnt die Antwort mit `Kein Eintrag gefunden – KI-Wissen:`; mit Treffer
+  stehen Links auf die verwendeten `.md`-Dateien darunter. Kein Vault-Abgleich
+  vor jeder Frage, kürzerer Verlauf, Antwortlänge nach Frage („in 3 Sätzen“).
+- Der Arbeitschat wiederholt keine identischen Such- und Leseaufrufe mehr.
 - Häufige Obsidian-Syntax ist fest im Code; erweiterte Syntax steht in der bei Bedarf gelesenen Vault-Datei `Obsidian_Syntax.md`.
 - Antworten lassen sich ohne Dialog als nummerierte Notizen speichern. Uploads landen sofort im Vault und behalten eine Chat-Kopie für die Analyse.
 - Navigation und Einstellungen sind kompakter. Seltene Optionen stehen unter „Erweitert“.

@@ -121,17 +121,96 @@ async def sync_index(root: Path, database: Database, client: Optional[OllamaClie
         }
 
 
+# Füll- und Fragewörter tragen nichts zur Treffersuche bei. Ohne diese Liste
+# passt "Was ist ...?" per ODER-Suche auf nahezu jeden Abschnitt im Vault.
+STOPWORDS = frozenset("""
+aber alle allem allen aller alles als also am an ander andere anderen auch auf aus bei beim bin bis bist bitte
+da dabei dadurch dafür daher damit dann darf darum das dass davon dazu dein deine dem den denn der deren des dessen
+die dies diese diesem diesen dieser dieses doch dort du durch ein eine einem einen einer eines einfach er erkläre
+erklär erklären erklärt es etwa etwas euch euer für gab gibt geben gib gut hab habe haben hat hatte hier
+ich ihm ihn ihnen ihr ihre im in ins ist ja je jede jeder jedes jetzt kann kannst kein keine können könnte kurz
+kurze lang man mehr mein meine meinem meinen meiner mich mir mit muss musst nach nein nicht nichts noch nun nur ob
+oder ohne satz sätze sätzen sehr sein seine sich sie sind so soll sollte sowie über um und uns unser unter viel
+vom von vor war waren warum was weil welche welchem welchen welcher welches wenn wer werden wie wieso wird wir wo
+wofür woher wohin womit worum wurde zu zum zur zwei drei vier fünf beschreibe beschreib nenne nenn zeige zeig sag
+sage sagen antworte antwort frage fragen bedeutet bedeutung heißt meint genau bzw usw eigentlich mal
+gelten gilt funktioniert funktionieren macht machen mache geht gehen brauche brauchen benötige nutze nutzen
+verwende verwenden steht stehen finde finden wichtig wichtigste
+a an and are as at be by can do does for from how i in is it me my of on or please tell the this to what when
+where which who why with you your explain
+""".split())
+
+
+def query_terms(query: str) -> List[str]:
+    """Nur bedeutungstragende Suchwörter: keine Füllwörter, keine Einzelziffern.
+
+    Kennungen wie ``S7`` oder ``ZX-731`` bleiben erhalten, weil sie Buchstaben
+    und Ziffern mischen. Reine Rechenaufgaben wie "1 + 2" ergeben keine Begriffe.
+    """
+    terms = []
+    for original in re.findall(r"\w+", query or "", re.UNICODE):
+        word = original.casefold()
+        if word in STOPWORDS or word.isdigit() and len(word) < 3:
+            continue
+        mixed = any(c.isdigit() for c in word) and any(c.isalpha() for c in word)
+        acronym = len(original) == 2 and original.isupper()  # KI, IT, PC, ZX
+        if len(word) >= 3 or mixed or acronym:
+            terms.append(word)
+    return list(dict.fromkeys(terms))
+
+
+def _covers(term: str, text: str) -> bool:
+    if len(term) <= 3:
+        # Kurze Kennungen nur am Wortanfang: "KI" soll nicht in "Skizze" passen.
+        return re.search(r"(?<!\w)" + re.escape(term), text) is not None
+    # Grobe deutsche Flexion: "Wartungsschritte" findet auch "Wartungsschritt".
+    return (term[:max(4, len(term) - 2)] if len(term) > 5 else term) in text
+
+
+def relevant_results(query: str, results: List[Dict[str, Any]],
+                     max_distance: float = 0.9) -> List[Dict[str, Any]]:
+    """Behält nur Treffer, die die Frage tatsächlich abdecken.
+
+    Lexikalisch muss bei einem Begriff dieser, bei mehreren mindestens die
+    Hälfte im Abschnitt oder Pfad vorkommen. Ein semantischer Treffer zählt ab
+    einer Kosinusähnlichkeit von etwa 0,6 (L2-Abstand 0,9 bei Einheitsvektoren).
+    """
+    terms = query_terms(query)
+    if not terms:
+        return []
+    needed = 1.0 if len(terms) == 1 else 0.5
+    kept = []
+    for item in results:
+        text = (item.get("path", "") + "\n" + item.get("content", "")).casefold()
+        coverage = sum(1 for term in terms if _covers(term, text)) / len(terms)
+        distance = item.get("distance")
+        if coverage >= needed or (distance is not None and distance <= max_distance):
+            kept.append(item)
+    return kept
+
+
 async def hybrid_search(root: Path, database: Database, query: str,
                         client: Optional[OllamaClient], embed_model: str,
                         limit: int = 6, excluded_dirs: Iterable[str] = (),
-                        refresh: bool = True, focus=None) -> Dict[str, Any]:
-    """Kombiniert lokale Worttreffer mit Kosinusähnlichkeit der Ollama-Vektoren."""
+                        refresh: bool = True, focus=None,
+                        relevant_only: bool = False) -> Dict[str, Any]:
+    """Kombiniert lokale Worttreffer mit Kosinusähnlichkeit der Ollama-Vektoren.
+
+    ``relevant_only`` verwirft schwache Treffer. Damit kann der Fragen-Chat
+    ehrlich "kein Eintrag" melden, statt beliebige Auszüge mitzuschicken.
+    Genannte Dateien (``focus``) werden nie herausgefiltert.
+    """
+    terms = query_terms(query)
+    if not terms and not (focus and focus.paths):
+        # Nichts Suchbares (z. B. "1 + 2"): weder Index noch Embedding-Modell laden.
+        return {"query": query, "results": [], "index": {}, "semantic": False, "skipped": True}
     status = (await sync_index(root, database, client, embed_model, excluded_dirs=excluded_dirs, focus=focus)
               if refresh and root else await asyncio.to_thread(database.knowledge_stats))
 
     vault_allowed = root and database.get_meta("search_vault_scope") == _scope(root, excluded_dirs)
     namespaces = ("vault",) if vault_allowed else ()
-    lexical = await asyncio.to_thread(database.search.search, query, [], embed_model,
+    lexical_query = " ".join(terms) or query
+    lexical = await asyncio.to_thread(database.search.search, lexical_query, [], embed_model,
                                       namespaces, max(1, min(limit, 20)), focus.paths if focus else None)
     # Exact words, phrases and paths already have useful local hits. Avoid
     # loading an embedding model (and potentially evicting the chat model).
@@ -148,12 +227,15 @@ async def hybrid_search(root: Path, database: Database, query: str,
         except (OllamaError, asyncio.TimeoutError) as exc:
             log.info("Semantische Anfrage fällt auf Stichwortsuche zurück: %s", str(exc))
 
-    results = (await asyncio.to_thread(database.search.search, query, query_vector, embed_model,
+    results = (await asyncio.to_thread(database.search.search, lexical_query, query_vector, embed_model,
                                        namespaces, max(1, min(limit, 20)), focus.paths if focus else None)
                if query_vector else lexical)
+    found = len(results)
+    if relevant_only and not (focus and focus.paths):
+        results = relevant_results(query, results)
     return {
         "query": query, "results": results, "index": status,
-        "semantic": bool(query_vector),
+        "semantic": bool(query_vector), "filtered": found - len(results),
     }
 
 
