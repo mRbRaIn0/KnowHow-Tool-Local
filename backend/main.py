@@ -14,10 +14,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse, Response
 
 from . import attachments, security
 from .config import BUNDLE_ROOT, LOG_DIR, build_fingerprint, store
+from .i18n import localize_detail
 from .database import registry
 from .watcher import watcher
 from .vault_guide import ensure_vault_guide
@@ -93,7 +95,7 @@ async def lifespan(app: FastAPI):
     log.info("Beendet.")
 
 
-app = FastAPI(title="KnowHow Tool", version="1.4", lifespan=lifespan,
+app = FastAPI(title="KnowHow Tool", version="1.5", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 
 
@@ -158,13 +160,20 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+@app.exception_handler(StarletteHTTPException)
+async def http_error(request: Request, exc: StarletteHTTPException):
+    """Fehlertexte in der gewählten Sprache der Oberfläche ausliefern."""
+    return JSONResponse(status_code=exc.status_code, content={"detail": localize_detail(exc.detail)},
+                        headers=getattr(exc, "headers", None))
+
+
 @app.exception_handler(Exception)
 async def unhandled_error(request: Request, exc: Exception):
     """Kein Absturz bei unerwarteten Fehlern — verständliche Meldung zurückgeben."""
     log.exception("Unbehandelter Fehler bei %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": {"message": f"Unerwarteter Fehler: {exc}", "kind": "error"}},
+        content={"detail": localize_detail({"message": f"Unerwarteter Fehler: {exc}", "kind": "error"})},
     )
 
 

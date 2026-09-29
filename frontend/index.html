@@ -52,19 +52,19 @@
 
     <form class="omnisearch" id="omnisearch" role="search" autocomplete="off">
       <svg class="omnisearch__icon"><use href="#i-search"/></svg>
-      <input type="search" id="omnisearch-input" placeholder="Notizen, Dateien und Chats durchsuchen" aria-label="Suche">
-      <kbd class="omnisearch__hint">Strg K</kbd>
+      <input type="search" id="omnisearch-input" placeholder="Notizen, Dateien und Chats durchsuchen" data-i18n-placeholder="search.placeholder" aria-label="Suche" data-i18n-label="search.label">
+      <kbd class="omnisearch__hint" data-i18n="search.shortcut">Strg K</kbd>
     </form>
 
-    <div class="status-rail" id="status-rail" title="Lokaler Systemstatus">
+    <div class="status-rail" id="status-rail" title="Lokaler Systemstatus" data-i18n-title="status.rail">
       <button class="gauge" id="gauge-ollama" data-state="unknown" type="button">
         <span class="gauge__dot"></span>
         <span class="gauge__label">Ollama</span>
-        <span class="gauge__value" id="gauge-ollama-value">prüfe…</span>
+        <span class="gauge__value" id="gauge-ollama-value" data-i18n="status.checking">prüfe…</span>
       </button>
       <button class="gauge" id="gauge-model" data-state="unknown" type="button">
         <span class="gauge__dot"></span>
-        <span class="gauge__label">Modell</span>
+        <span class="gauge__label" data-i18n="status.model">Modell</span>
         <span class="gauge__value" id="gauge-model-value">–</span>
       </button>
       <button class="gauge" id="gauge-vault" data-state="unknown" type="button">
@@ -74,16 +74,16 @@
       </button>
       <span class="gauge gauge--static" id="gauge-offline" data-state="ok">
         <span class="gauge__dot"></span>
-        <span class="gauge__label">Offline</span>
-        <span class="gauge__value" id="gauge-offline-value">ein</span>
+        <span class="gauge__label" data-i18n="status.offlineLabel">Offline</span>
+        <span class="gauge__value" id="gauge-offline-value" data-i18n="common.on">ein</span>
       </span>
     </div>
 
     <div class="topbar__actions">
-      <button class="icon-btn" id="btn-context" type="button" title="Kontextspalte ein-/ausblenden" aria-label="Kontextspalte">
+      <button class="icon-btn" id="btn-context" type="button" title="Kontextspalte ein-/ausblenden" data-i18n-title="topbar.context" aria-label="Kontextspalte" data-i18n-label="topbar.contextShort">
         <svg><use href="#i-panel"/></svg>
       </button>
-      <button class="icon-btn" id="btn-settings" type="button" title="Einstellungen" aria-label="Einstellungen">
+      <button class="icon-btn" id="btn-settings" type="button" title="Einstellungen" data-i18n-title="nav.settings" aria-label="Einstellungen" data-i18n-label="nav.settings">
         <svg><use href="#i-gear"/></svg>
       </button>
     </div>
@@ -92,23 +92,23 @@
   <div class="workspace" id="workspace">
     <nav class="rail" id="rail">
       <ul class="nav" id="nav">
-        <li><button data-nav="dashboard" class="nav__item is-active"><svg><use href="#i-home"/></svg><span>Übersicht</span></button></li>
-        <li><button data-nav="ask" class="nav__item"><svg><use href="#i-question"/></svg><span>Wissen fragen</span></button></li>
-        <li><button data-nav="chat" class="nav__item"><svg><use href="#i-chat"/></svg><span>Wissen erweitern</span></button></li>
-        <li><button data-nav="notes" class="nav__item"><svg><use href="#i-note"/></svg><span>Notizen</span></button></li>
-        <li><button data-nav="images" class="nav__item"><svg><use href="#i-image"/></svg><span>Bilder</span></button></li>
-        <li><button data-nav="files" class="nav__item"><svg><use href="#i-files"/></svg><span>Dateien</span></button></li>
+        <li><button data-nav="dashboard" class="nav__item is-active"><svg><use href="#i-home"/></svg><span data-i18n="nav.dashboard">Übersicht</span></button></li>
+        <li><button data-nav="ask" class="nav__item"><svg><use href="#i-question"/></svg><span data-i18n="nav.ask">Wissen fragen</span></button></li>
+        <li><button data-nav="chat" class="nav__item"><svg><use href="#i-chat"/></svg><span data-i18n="nav.chat">Wissen erweitern</span></button></li>
+        <li><button data-nav="notes" class="nav__item"><svg><use href="#i-note"/></svg><span data-i18n="nav.notes">Notizen</span></button></li>
+        <li><button data-nav="images" class="nav__item"><svg><use href="#i-image"/></svg><span data-i18n="nav.images">Bilder</span></button></li>
+        <li><button data-nav="files" class="nav__item"><svg><use href="#i-files"/></svg><span data-i18n="nav.files">Dateien</span></button></li>
         <li><details class="nav__advanced">
-          <summary title="Erweitert"><svg><use href="#i-chevron"/></svg><span>Erweitert</span></summary>
+          <summary title="Erweitert" data-i18n-title="nav.advanced"><svg><use href="#i-chevron"/></svg><span data-i18n="nav.advanced">Erweitert</span></summary>
           <ul class="nav nav--nested">
-            <li><button data-nav="knowledge" class="nav__item"><svg><use href="#i-knowledge"/></svg><span>Wissen</span></button></li>
-            <li><button data-nav="templates" class="nav__item"><svg><use href="#i-template"/></svg><span>Vorlagen</span></button></li>
+            <li><button data-nav="knowledge" class="nav__item"><svg><use href="#i-knowledge"/></svg><span data-i18n="nav.knowledge">Wissen</span></button></li>
+            <li><button data-nav="templates" class="nav__item"><svg><use href="#i-template"/></svg><span data-i18n="nav.templates">Vorlagen</span></button></li>
           </ul>
         </details></li>
       </ul>
       <div class="rail__panel" id="rail-panel"></div>
-      <footer class="rail-contact" aria-label="Produktversion">
-        <span class="rail-contact__version">Version 1.4</span>
+      <footer class="rail-contact" aria-label="Produktversion" data-i18n-label="nav.productVersion">
+        <span class="rail-contact__version">Version 1.5</span>
       </footer>
     </nav>
 

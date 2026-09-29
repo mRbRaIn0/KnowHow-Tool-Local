@@ -137,6 +137,7 @@ class Profile(BaseModel):
 
 class UISettings(BaseModel):
     theme: str = "system"  # light | dark | system
+    language: str = Field(default="de", pattern=r"^(?:de|en)$")
 
 
 class ServerSettings(BaseModel):

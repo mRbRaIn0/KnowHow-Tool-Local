@@ -35,7 +35,10 @@ _EDIT = re.compile(
     r"\b(?:möchte|will|soll)\w*\b.{0,45}\b(?:ein\s+)?(?:anderes?|neues?)\s+"
     r"(?:struktur|aufbau|design|layout|formatierung)\b|"
     r"\b(?:gib|mach)\w*\b.{0,45}\b(?:ein\s+)?(?:anderes?|neues?)\s+"
-    r"(?:struktur|aufbau|design|layout|formatierung)\b",
+    r"(?:struktur|aufbau|design|layout|formatierung)\b|"
+    # Englische Oberfläche: die vorbereiteten Aufträge und einfache Formulierungen.
+    r"\b(?:restructur\w*|rewrit\w*|reorgani[sz]\w*)\b.{0,55}"
+    r"\b(?:note|text|section|structure|layout|file|document)\b",
     re.IGNORECASE | re.DOTALL,
 )
 _ALL_FILES = re.compile(
@@ -78,7 +81,8 @@ _FULL_REWRITE = re.compile(
     r"(?:struktur|design|layout|aufbau|formatierung)|"
     r"gesamten?\s+text.{0,20}(?:überarbeit\w*|änder\w*)|"
     r"(?:design|layout|aufbau|struktur).{0,25}(?:grundlegend|komplett|vollständig|neu)|"
-    r"(?:grundlegend|komplett|vollständig).{0,15}(?:design|layout|aufbau|struktur))\b",
+    r"(?:grundlegend|komplett|vollständig).{0,15}(?:design|layout|aufbau|struktur)|"
+    r"completely\s+(?:restructur\w*|rewrit\w*)|entirely\s+(?:restructur\w*|rewrit\w*))\b",
     re.IGNORECASE | re.DOTALL,
 )
 _ARCHIVE = re.compile(

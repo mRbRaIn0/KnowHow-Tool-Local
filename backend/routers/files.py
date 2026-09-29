@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..attachments import MAX_FILE_BYTES, AttachmentError, safe_filename
+from ..i18n import localize
 from ..deps import current_vault
 from ..deps import current_profile
 from ..watcher import watcher
@@ -165,7 +166,7 @@ async def upload_files(files: List[UploadFile] = File(...), folder: Optional[str
             saved.append({"path": path, "name": path.rsplit("/", 1)[-1],
                           "kind": kind_for(safe_join(root, path))})
         except (VaultError, AttachmentError, OSError) as exc:
-            failed.append({"name": upload.filename or "datei", "grund": str(exc)})
+            failed.append({"name": upload.filename or "datei", "grund": localize(str(exc))})
         finally:
             await upload.close()
     return {"gespeichert": saved, "fehler": failed}

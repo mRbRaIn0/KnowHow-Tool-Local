@@ -1,6 +1,7 @@
 // Anwendungsgerüst: Statusleiste, Navigation, Routing.
 
 import { api } from './api.js';
+import { initI18n, t } from './i18n.js';
 import { clear, debounce, h, toast } from './util.js';
 import {
   applyTheme, emit, navigate, on, parseRoute, profileTone,
@@ -51,30 +52,28 @@ function setGauge(id, gaugeState, value, title = '') {
 
 function renderStatus(status) {
   if (!status) {
-    setGauge('gauge-ollama', 'bad', 'kein Backend', 'Das lokale Backend antwortet nicht.');
+    setGauge('gauge-ollama', 'bad', t('status.noBackend'), t('status.backendSilent'));
     return;
   }
 
   const { ollama, model, vault, profile, profiles, privacy, ui } = status;
 
   setGauge('gauge-ollama', ollama.online ? 'ok' : 'bad',
-    ollama.online ? ollama.version || 'online' : 'offline',
-    ollama.online ? `Ollama ${ollama.version} unter ${ollama.base_url}` : ollama.error || 'Nicht erreichbar');
+    ollama.online ? ollama.version || t('status.online') : t('status.offline'),
+    ollama.online ? t('status.ollamaAt', { version: ollama.version, url: ollama.base_url }) : ollama.error || t('status.unreachable'));
 
   setGauge('gauge-model', model.installed ? 'ok' : (ollama.online ? 'warn' : 'bad'),
     model.name,
     model.installed
-      ? `${model.name}${model.vision ? ' · Bilder' : ''}${model.thinking ? ' · Thinking' : ''}`
-      : `${model.name} ist nicht installiert.`);
+      ? `${model.name}${model.vision ? ` · ${t('status.images')}` : ''}${model.thinking ? ' · Thinking' : ''}`
+      : t('status.modelMissing', { name: model.name }));
 
   setGauge('gauge-vault', vault.ok ? 'ok' : 'warn',
-    vault.ok ? vault.name : 'nicht gesetzt', vault.path || 'Noch kein Vault ausgewählt.');
+    vault.ok ? vault.name : t('status.notSet'), vault.path || t('status.noVaultYet'));
 
   setGauge('gauge-offline', privacy.offline_mode ? 'ok' : 'warn',
-    privacy.offline_mode ? 'ein' : 'aus',
-    privacy.offline_mode
-      ? 'Offline-Modus aktiv: Es sind nur lokale Verbindungen erlaubt.'
-      : 'Offline-Modus ist ausgeschaltet.');
+    privacy.offline_mode ? t('common.on') : t('common.off'),
+    privacy.offline_mode ? t('status.offlineOn') : t('status.offlineOff'));
 
   document.getElementById('brand-vault').textContent = 'KnowHow Tool';
   document.getElementById('brand-profile').textContent = profile.name;
@@ -137,16 +136,16 @@ async function loadView(name) {
 }
 
 function renderViewError(viewName, error) {
-  const message = error?.message || 'Unbekannter Fehler beim Laden der Ansicht.';
+  const message = error?.message || t('app.viewErrorUnknown');
   el.main.replaceChildren(h('div', { class: 'view' },
     h('div', { class: 'notice notice--bad' },
       h('div', { class: 'notice__body' },
-        h('strong', { text: 'Ansicht konnte nicht geladen werden' }),
-        h('p', { text: `Die Seite „${viewName}“ ist fehlgeschlagen: ${message}` }),
+        h('strong', { text: t('app.viewError') }),
+        h('p', { text: t('app.viewErrorDetail', { view: viewName, message }) }),
         h('div', { class: 'notice__actions' },
-          h('button', { class: 'btn btn--sm btn--primary', onclick: () => location.reload() }, 'Erneut laden'),
-          h('button', { class: 'btn btn--sm', onclick: () => navigate('/dashboard') }, 'Zur Übersicht'))))));
-  toast('Die Ansicht konnte nicht geladen werden.', 'bad');
+          h('button', { class: 'btn btn--sm btn--primary', onclick: () => location.reload() }, t('app.reload')),
+          h('button', { class: 'btn btn--sm', onclick: () => navigate('/dashboard') }, t('app.toOverview')))))));
+  toast(t('app.viewError'), 'bad');
 }
 
 /* ---------------------------------------------------------- Setup */
@@ -193,8 +192,8 @@ function wireChrome() {
     const code = button.parentElement.querySelector('code');
     if (code) {
       navigator.clipboard.writeText(code.textContent).then(
-        () => toast('Code kopiert.', 'ok'),
-        () => toast('Kopieren nicht möglich.', 'bad'),
+        () => toast(t('common.codeCopied'), 'ok'),
+        () => toast(t('common.copyFailed'), 'bad'),
       );
     }
   });
@@ -230,6 +229,10 @@ async function start() {
   if (new URLSearchParams(location.search).has('t')) {
     history.replaceState(null, '', location.pathname + location.hash);
   }
+
+  // Sprache vor dem ersten Rendern laden, damit die Oberfläche nie gemischt erscheint.
+  const early = await api.status().catch(() => null);
+  await initI18n(early?.ui?.language || 'de');
 
   applyTheme('dark');
   wireChrome();

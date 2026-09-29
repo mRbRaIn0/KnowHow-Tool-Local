@@ -3,6 +3,7 @@
 
 import { api, uploadToVault } from './api.js';
 import { setDraft } from './chatstream.js';
+import { t } from './i18n.js';
 import { h, icon, toast } from './util.js';
 import { navigate, refreshFileIndex } from './store.js';
 
@@ -10,9 +11,9 @@ import { navigate, refreshFileIndex } from './store.js';
 export function dropZone({ label, accept = '', folder = () => null, onSaved = () => {} }) {
   const picker = h('input', { type: 'file', multiple: true, accept, hidden: true });
   const zone = h('div', { class: 'dropzone', tabindex: '0', role: 'button',
-    'aria-label': `${label} – Dateien ablegen, einfügen oder auswählen` },
+    'aria-label': t('capture.zoneLabel', { label }) },
     icon('clip'), h('span', { text: label }),
-    h('small', { text: 'Ziehen, Strg+V oder klicken · gleiche Namen werden nummeriert' }), picker);
+    h('small', { text: t('capture.zoneHint') }), picker);
 
   const save = async (files) => {
     if (!files.length) return;
@@ -22,7 +23,7 @@ export function dropZone({ label, accept = '', folder = () => null, onSaved = ()
       for (const problem of result.fehler || []) toast(`${problem.name}: ${problem.grund}`, 'bad');
       const saved = result.gespeichert || [];
       if (saved.length) {
-        toast(saved.length === 1 ? `Im Vault gespeichert: ${saved[0].path}` : `${saved.length} Dateien im Vault gespeichert.`, 'ok');
+        toast(saved.length === 1 ? t('chat.savedInVault', { path: saved[0].path }) : t('chat.filesSavedInVault', { n: saved.length }), 'ok');
         await refreshFileIndex();
         onSaved(saved);
       }
@@ -67,7 +68,7 @@ export function askAI(text) {
 /** Neuer Arbeitschat mit einer Vault-Datei als Anhang (keine zweite Kopie im Vault). */
 export async function askAIWithFile(path, text) {
   try {
-    const created = await api.createChat('Neuer Wissens-Chat', 'vault');
+    const created = await api.createChat(t('mode.vault.newTitle'), 'vault');
     await api.post(`/api/attachments/${created.id}/from-vault`, { path });
     setDraft(created.id, text);
     navigate(`/chat/${created.id}`);

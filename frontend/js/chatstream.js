@@ -6,6 +6,7 @@
 
 import { api, streamPost } from './api.js';
 import { emit } from './store.js';
+import { t } from './i18n.js';
 
 const runs = new Map();    // chatId -> laufende Antwort
 const drafts = new Map();  // chatId -> noch nicht abgeschickter Text
@@ -98,7 +99,7 @@ export function send(chatId, content, selection = {}) {
     onDone: () => {
       emit('vault:action-finished', { chatId });
       if (runs.get(chatId) === run && !run.stopping) {
-        emit('chat:event', { chatId, run, event: { type: 'error', message: 'Die Verbindung endete ohne Abschluss. Gespeicherte Arbeitsnotizen bleiben im Chat verfügbar.' } });
+        emit('chat:event', { chatId, run, event: { type: 'error', message: t('stream.endedWithoutFinish') } });
         finish(chatId);
       }
     },
@@ -115,9 +116,9 @@ export async function stop(chatId) {
   emit('chat:event', { chatId, event: { type: 'stopping' }, run });
   try {
     const result = await api.post(`/api/chats/${chatId}/stop`, {});
-    if (!result.stopped) throw new Error('Der Server hat den Stopp noch nicht bestätigt.');
+    if (!result.stopped) throw new Error(t('stream.stopUnconfirmed'));
     run.abort?.();
-    run.content += '\n\nAntwort gestoppt. Gespeicherte Arbeitsnotizen bleiben erhalten. Die Hintergrundindizierung ist bis zum nächsten App-Start pausiert; manuelles Neuindizieren bleibt möglich.';
+    run.content += `\n\n${t('stream.stoppedNote')}`;
     emit('chat:event', { chatId, event: { type: 'stopped' }, run });
     finish(chatId);
     return true;

@@ -1,5 +1,7 @@
 // Kleine DOM- und Formatierungshelfer. Bewusst ohne Framework.
 
+import { locale, t } from './i18n.js';
+
 export function h(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs || {})) {
@@ -18,6 +20,30 @@ export function h(tag, attrs = {}, ...children) {
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
   return node;
+}
+
+/**
+ * Ersetzt den Inhalt eines Elements. Anders als replaceChildren()/append() werden
+ * null, undefined und false ausgelassen — sie erschienen sonst als Text „null“.
+ */
+export function fill(host, ...children) {
+  host.replaceChildren(...children.flat().filter((child) => child !== null && child !== undefined && child !== false));
+  return host;
+}
+
+/** Ein Wert ist anzeigbar, wenn er nicht leer und kein technischer Platzhalter ist. */
+export function hasValue(value) {
+  if (value === null || value === undefined || value === false) return false;
+  const text = String(value).trim();
+  return text !== '' && text !== 'null' && text !== 'undefined' && text !== 'NaN';
+}
+
+/** Beschriftete Wertepaare (<dl>); Felder ohne Wert werden komplett ausgeblendet. */
+export function kv(rows) {
+  const items = rows.filter(([, value]) => hasValue(value));
+  if (!items.length) return null;
+  return h('dl', { class: 'ctx-kv' }, ...items.flatMap(([label, value]) =>
+    [h('dt', { text: label }), h('dd', { text: String(value) })]));
 }
 
 export function icon(name, cls = '') {
@@ -45,17 +71,17 @@ export function fmtDate(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   const diff = (Date.now() - date.getTime()) / 1000;
-  if (diff < 60) return 'gerade eben';
-  if (diff < 3600) return `vor ${Math.floor(diff / 60)} min`;
-  if (diff < 86400) return `vor ${Math.floor(diff / 3600)} h`;
-  if (diff < 604800) return `vor ${Math.floor(diff / 86400)} T`;
-  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  if (diff < 60) return t('time.now');
+  if (diff < 3600) return t('time.minutesAgo', { n: Math.floor(diff / 60) });
+  if (diff < 86400) return t('time.hoursAgo', { n: Math.floor(diff / 3600) });
+  if (diff < 604800) return t('time.daysAgo', { n: Math.floor(diff / 86400) });
+  return date.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 export function fmtTime(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 }
 
 export function fmtBytes(bytes) {
@@ -67,7 +93,7 @@ export function fmtBytes(bytes) {
 }
 
 export function fmtNumber(value) {
-  return new Intl.NumberFormat('de-DE').format(value ?? 0);
+  return new Intl.NumberFormat(locale()).format(value ?? 0);
 }
 
 export function baseName(path) {
@@ -82,15 +108,15 @@ export function parentDir(path) {
 
 /* --------------------------------------------------------- Toasts */
 
-const KIND_TITLE = { ok: 'Erledigt', bad: 'Fehler', info: 'Hinweis' };
+const KIND_TITLE = { ok: 'toast.done', bad: 'toast.error', info: 'toast.info' };
 
 export function toast(message, kind = 'info', title = '') {
   const host = document.getElementById('toasts');
   const node = h('div', { class: `toast toast--${kind}` },
     h('div', { class: 'toast__body' },
-      h('strong', { text: title || KIND_TITLE[kind] || 'Hinweis' }),
+      h('strong', { text: title || t(KIND_TITLE[kind] || 'toast.info') }),
       h('span', { text: message })),
-    h('button', { class: 'icon-btn', title: 'Schließen', onclick: () => node.remove() },
+    h('button', { class: 'icon-btn', title: t('common.close'), onclick: () => node.remove() },
       h('span', { text: '×', style: 'font-size:17px;line-height:1' })),
   );
   host.append(node);
@@ -122,8 +148,9 @@ export function openModal({ title, description = '', body, actions = [], onClose
     }, action.label));
   }
 
-  const modal = h('div', { class: 'modal' },
-    h('div', { class: 'modal__head' }, h('h2', { text: title }), description ? h('p', { text: description }) : null),
+  const titleId = `modal-title-${Date.now()}`;
+  const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
+    h('div', { class: 'modal__head' }, h('h2', { id: titleId, text: title }), description ? h('p', { text: description }) : null),
     h('div', { class: 'modal__body' }, body),
     actions.length ? foot : null,
   );
@@ -134,7 +161,7 @@ export function openModal({ title, description = '', body, actions = [], onClose
   return { close, modal };
 }
 
-export function confirmDialog({ title, message, confirmLabel = 'Bestätigen', danger = false }) {
+export function confirmDialog({ title, message, confirmLabel = t('common.confirm'), danger = false }) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value, close) => { settled = true; resolve(value); close(); };
@@ -142,7 +169,7 @@ export function confirmDialog({ title, message, confirmLabel = 'Bestätigen', da
       title,
       body: h('p', { text: message, style: 'margin:0;color:var(--text-2)' }),
       actions: [
-        { label: 'Abbrechen', onClick: (close) => finish(false, close) },
+        { label: t('common.cancel'), onClick: (close) => finish(false, close) },
         { label: confirmLabel, variant: danger ? 'danger' : 'primary', onClick: (close) => finish(true, close) },
       ],
       onClose: () => { if (!settled) resolve(false); },
@@ -150,7 +177,7 @@ export function confirmDialog({ title, message, confirmLabel = 'Bestätigen', da
   });
 }
 
-export function promptDialog({ title, description = '', label, value = '', confirmLabel = 'Speichern', mono = false }) {
+export function promptDialog({ title, description = '', label, value = '', confirmLabel = t('common.save'), mono = false }) {
   return new Promise((resolve) => {
     let settled = false;
     const input = h('input', { class: `input ${mono ? 'input--mono' : ''}`, value });
@@ -159,7 +186,7 @@ export function promptDialog({ title, description = '', label, value = '', confi
     const { close } = openModal({
       title, description, body: form,
       actions: [
-        { label: 'Abbrechen', onClick: (c) => finish(null, c) },
+        { label: t('common.cancel'), onClick: (c) => finish(null, c) },
         { label: confirmLabel, variant: 'primary', onClick: (c) => finish(input.value.trim() || null, c) },
       ],
       onClose: () => { if (!settled) resolve(null); },
@@ -173,7 +200,7 @@ export function promptDialog({ title, description = '', label, value = '', confi
 export async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
-    toast('In die Zwischenablage kopiert.', 'ok');
+    toast(t('common.copied'), 'ok');
   } catch {
     // Fallback für Kontexte ohne Clipboard-API.
     const area = h('textarea', { style: 'position:fixed;opacity:0' });
@@ -182,7 +209,7 @@ export async function copyText(text) {
     area.select();
     document.execCommand('copy');
     area.remove();
-    toast('In die Zwischenablage kopiert.', 'ok');
+    toast(t('common.copied'), 'ok');
   }
 }
 

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from .. import attachments
 from ..attachments import AttachmentError
 from ..deps import current_db, current_profile, current_vault
+from ..i18n import localize
 from ..vault import VaultError, safe_join, to_relative
 
 log = logging.getLogger(__name__)
@@ -64,10 +65,10 @@ async def upload(chat_id: str, files: List[UploadFile] = File(...)) -> Dict[str,
             )
             gespeichert.append(item)
         except (AttachmentError, VaultError) as exc:
-            fehler.append({"name": upload_file.filename, "grund": str(exc)})
+            fehler.append({"name": upload_file.filename, "grund": localize(str(exc))})
         except OSError as exc:
             log.warning("Anhang %s konnte nicht gespeichert werden: %s", upload_file.filename, exc)
-            fehler.append({"name": upload_file.filename, "grund": str(exc)})
+            fehler.append({"name": upload_file.filename, "grund": localize(str(exc))})
         finally:
             await upload_file.close()
 

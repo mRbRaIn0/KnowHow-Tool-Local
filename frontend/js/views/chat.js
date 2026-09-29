@@ -6,9 +6,10 @@
 import { api, uploadFiles } from '../api.js';
 import { renderMarkdown } from '../markdown.js';
 import {
-  clear, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, h, icon,
+  clear, confirmDialog, copyText, fill, fmtBytes, fmtDate, fmtTime, h, icon, kv,
   promptDialog, toast,
 } from '../util.js';
+import { t } from '../i18n.js';
 import { markdownOptions, navigate, on, refreshFileIndex, refreshStatus, state, vaultReady } from '../store.js';
 import * as stream from '../chatstream.js';
 import { writePreview, undoButton } from '../vaultactions.js';
@@ -21,25 +22,19 @@ let attachmentState = [];
 let activeMode = null;
 let folderContextMenu = null;
 let folderContextCleanup = null;
+let railFolders = [];
+
+// Suchbereich je Chat (vault-relativer Ordner, '' = alle Ordner). Gilt für die
+// nächsten Nachrichten dieses Chats und bleibt beim Wechseln der Ansicht erhalten.
+const scopeByChat = new Map();
 
 const MAX_ATTACHMENTS = 50;
 const CHIP_ICONS = { image: 'image', doc: 'doc', code: 'code', note: 'note', text: 'doc' };
 const CHAT_MODES = {
-  vault: {
-    purpose: 'vault', route: 'chat', label: 'Wissen erweitern',
-    newTitle: 'Neuer Wissens-Chat', emptyTitle: 'Kein Arbeitschat ausgewählt',
-    emptyText: 'Starte einen Arbeitschat, um Wissen oder Dateien in den Vault aufzunehmen.',
-    newLabel: 'Wissen hinzufügen',
-    placeholder: 'Wissen oder Datei zum Vault hinzufügen …',
-  },
-  ask: {
-    purpose: 'ask', route: 'ask', label: 'Wissen fragen',
-    newTitle: 'Neue Frage', emptyTitle: 'Kein Fragen-Chat ausgewählt',
-    emptyText: 'Starte einen Fragen-Chat für Antworten aus Wissensbasis und KI.',
-    newLabel: 'Neue Frage',
-    placeholder: 'Frage an Wissensbasis und KI stellen …',
-  },
+  vault: { purpose: 'vault', route: 'chat' },
+  ask: { purpose: 'ask', route: 'ask' },
 };
+const M = (name, params) => t(`mode.${activeMode.purpose}.${name}`, params);
 
 export function unmount() {
   // Wichtig: Der Stream wird NICHT abgebrochen — er läuft im Hintergrund weiter.
@@ -62,7 +57,7 @@ export async function mount({ route, el }) {
   if (!route.id && route.params.draft && activeMode.purpose === 'vault') {
     // Aus Notizen/Bilder/Dateien: neuer Arbeitschat mit vorbereitetem Auftrag.
     try {
-      const created = await api.createChat(activeMode.newTitle, activeMode.purpose);
+      const created = await api.createChat(M('newTitle'), activeMode.purpose);
       stream.setDraft(created.id, route.params.draft);
       navigate(`/${activeMode.route}/${created.id}`);
       return;
@@ -124,11 +119,19 @@ export async function mount({ route, el }) {
   await loadAttachments(route.id);
 
   unsubscribe.push(on('chat:event', onStreamEvent));
-  renderContext(data.chat, data.messages.length);
-  unsubscribe.push(on('status', () => renderContext(data.chat, data.messages.length)));
-  unsubscribe.push(on('vault:action-finished', () => renderContext(data.chat, data.messages.length)));
+  renderContext();
+  unsubscribe.push(on('status', renderContext));
+  unsubscribe.push(on('vault:action-finished', renderContext));
+  unsubscribe.push(on('files', () => { fillScopeSelect(); renderContext(); }));
   scrollToEnd();
   if (!run) elements.input.focus();
+}
+
+/** Text hinter dem Modellnamen einer Antwort: Ausführungsart bzw. Thinking-Zustand. */
+function modeLabel(execution, thinking) {
+  if (execution === 'direct') return t('chat.modeDirect');
+  if (thinking === null || thinking === undefined) return t('chat.thinkingUnavailable');
+  return thinking ? t('chat.thinkingOn') : t('chat.thinkingOff');
 }
 
 /** Eine im Hintergrund weiterlaufende Antwort wieder sichtbar machen. */
@@ -141,7 +144,7 @@ function restoreRunning(run) {
   const caret = h('span', { class: 'caret' });
   node._content.append(caret);
   elements.list.append(node);
-  node.querySelector('.msg__who').textContent = `${run.model} · ${run.execution === 'direct' ? 'Direktaktion' : run.thinkingEnabled ? 'Thinking an' : 'Thinking aus'}`;
+  node.querySelector('.msg__who').textContent = `${run.model} · ${modeLabel(run.execution, run.thinkingEnabled)}`;
   live = { node, caret, thinkingNode: node.querySelector('.msg__think') };
   for (const analysis of Object.values(run.analyses || {})) renderAnalysis(analysis);
   if (run.preview) node._steps.append(writePreview(run.preview, run.chatId, () => { run.preview = null; }));
@@ -157,14 +160,14 @@ let dragChatId = null;
 async function renderRail(activeId) {
   closeFolderContextMenu();
   const head = h('div', { class: 'rail-head' },
-    h('span', { class: 'label', text: activeMode.label }),
+    h('span', { class: 'label', text: M('label') }),
     h('button', {
-      class: 'icon-btn', title: 'Neuer Ordner',
-      'aria-label': 'Neuer Ordner', onclick: newFolder,
+      class: 'icon-btn', title: t('folder.new'),
+      'aria-label': t('folder.new'), onclick: newFolder,
     }, icon('folder-plus')),
     h('button', {
-      class: 'icon-btn', title: activeMode.newLabel,
-      'aria-label': activeMode.newLabel, onclick: newChat,
+      class: 'icon-btn', title: M('newLabel'),
+      'aria-label': M('newLabel'), onclick: newChat,
     }, icon('plus')));
   const list = h('div', { class: 'chat-tree' });
   elements.rail.replaceChildren(head, list);
@@ -179,6 +182,7 @@ async function renderRail(activeId) {
     chats = chatData.chats || [];
     folders = folderData.folders || [];
     state.chats = chats;
+    railFolders = folders;
   } catch (error) {
     list.append(h('p', { class: 'field__hint', style: 'padding:8px 4px', text: error.message }));
     return;
@@ -200,11 +204,11 @@ async function renderRail(activeId) {
       onCollapse: (value) => api.updateChatFolder(folder.id, { collapsed: value }).catch(() => {}),
       chats: inhalt,
       activeId,
-      emptyText: 'Chats hierher ziehen',
+      emptyText: t('folder.dropHere'),
       onDrop: (chatId) => moveChat(chatId, { folder_id: folder.id, archived: false }),
       tools: [
-        { title: 'Ordner umbenennen', iconName: 'pencil', onClick: () => renameFolder(folder) },
-        { title: 'Ordner löschen', iconName: 'trash', danger: true, onClick: () => deleteFolder(folder) },
+        { title: t('folder.rename'), iconName: 'pencil', onClick: () => renameFolder(folder) },
+        { title: t('folder.delete'), iconName: 'trash', danger: true, onClick: () => deleteFolder(folder) },
       ],
     }));
   }
@@ -214,13 +218,13 @@ async function renderRail(activeId) {
   if (folders.length || archived.length) {
     list.append(folderGroup({
       key: 'root',
-      name: 'Chats',
+      name: t('folder.rootName'),
       iconName: 'chat',
       collapsed: readCollapsed('root'),
       onCollapse: (value) => writeCollapsed('root', value),
       chats: lose,
       activeId,
-      emptyText: 'Chats hierher ziehen',
+      emptyText: t('folder.dropHere'),
       onDrop: (chatId) => moveChat(chatId, { folder_id: '', archived: false }),
     }));
   } else if (lose.length) {
@@ -229,13 +233,13 @@ async function renderRail(activeId) {
   } else {
     list.append(h('p', {
       class: 'field__hint', style: 'padding:8px 4px',
-      text: activeMode.purpose === 'ask' ? 'Noch keine Fragen-Verläufe.' : 'Noch keine Arbeitsverläufe.',
+      text: activeMode.purpose === 'ask' ? t('chat.noQuestions') : t('chat.noWorkChats'),
     }));
   }
 
   list.append(folderGroup({
     key: 'archive',
-    name: 'Archiviert',
+    name: t('chat.archived'),
     iconName: 'archive',
     modifier: 'chat-folder--archive',
     collapsed: readCollapsed('archive'),
@@ -243,7 +247,7 @@ async function renderRail(activeId) {
     chats: archived,
     activeId,
     archive: true,
-    emptyText: 'Chats zum Archivieren hierher ziehen',
+    emptyText: t('chat.dropToArchive'),
     onDrop: (chatId) => moveChat(chatId, { archived: true }),
   }));
 }
@@ -273,11 +277,11 @@ function folderGroup(options) {
 
   const head = h('div', { class: 'chat-folder__head' }, toggle, tools);
   if (options.tools?.length) {
-    head.title = 'Rechtsklick für Ordneroptionen';
+    head.title = t('folder.rightClick');
     head.addEventListener('contextmenu', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      openFolderContextMenu(event, name, options.tools, toggle);
+      openFolderContextMenu(event, t('folder.menuLabel', { name }), options.tools, toggle);
     });
   }
 
@@ -303,29 +307,30 @@ function folderGroup(options) {
   });
 }
 
-/** Zeigt die Aktionen eines echten Chat-Ordners am Mauszeiger. */
-function openFolderContextMenu(event, folderName, actions, returnFocus) {
+/**
+ * Zeigt ein kleines Kontextmenü am Mauszeiger (Ordneroptionen bzw. Chatoptionen).
+ * actions: { title, iconName, danger?, checked?, onClick }
+ */
+function openFolderContextMenu(event, ariaLabel, actions, returnFocus) {
   closeFolderContextMenu();
-
-  const buttons = actions.map((action) => h('button', {
-    class: `chat-folder-menu__item ${action.danger ? 'chat-folder-menu__item--danger' : ''}`,
-    type: 'button', role: 'menuitem',
-    onclick: () => {
-      closeFolderContextMenu();
-      action.onClick();
-    },
-  }, icon(action.iconName), h('span', { text: action.title })));
-
-  const menu = h('div', {
-    class: 'chat-folder-menu', role: 'menu',
-    'aria-label': `Ordner ${folderName} verwalten`,
-  }, ...buttons);
-  document.body.append(menu);
-  folderContextMenu = menu;
-
   const anchor = returnFocus.getBoundingClientRect();
   const requestedX = event.clientX || anchor.left + 12;
   const requestedY = event.clientY || anchor.bottom;
+
+  const buttons = actions.map((action) => h('button', {
+    class: `chat-folder-menu__item ${action.danger ? 'chat-folder-menu__item--danger' : ''} ${action.checked ? 'is-checked' : ''}`,
+    type: 'button', role: action.checked === undefined ? 'menuitem' : 'menuitemradio',
+    'aria-checked': action.checked === undefined ? null : String(Boolean(action.checked)),
+    onclick: () => {
+      closeFolderContextMenu();
+      action.onClick({ clientX: requestedX, clientY: requestedY });
+    },
+  }, icon(action.iconName), h('span', { text: action.title })));
+
+  const menu = h('div', { class: 'chat-folder-menu', role: 'menu', 'aria-label': ariaLabel }, ...buttons);
+  document.body.append(menu);
+  folderContextMenu = menu;
+
   const bounds = menu.getBoundingClientRect();
   const gap = 8;
   menu.style.left = `${Math.max(gap, Math.min(requestedX, window.innerWidth - bounds.width - gap))}px`;
@@ -373,6 +378,34 @@ function closeFolderContextMenu() {
   folderContextMenu = null;
 }
 
+/** Rechtsklick auf einen Chat: zu Ordner hinzufügen, archivieren, löschen. */
+function openChatMenu(event, chat, archived, returnFocus) {
+  event.preventDefault();
+  event.stopPropagation();
+  openFolderContextMenu(event, t('chat.menuLabel', { title: chat.title }), [
+    { title: t('chat.addToFolder'), iconName: 'folder-plus', onClick: (position) => openFolderChoice(position, chat, returnFocus) },
+    archived
+      ? { title: t('chat.unarchive'), iconName: 'folder-open', onClick: () => moveChat(chat.id, { archived: false }) }
+      : { title: t('chat.archive'), iconName: 'archive', onClick: () => moveChat(chat.id, { archived: true }) },
+    { title: t('chat.delete'), iconName: 'trash', danger: true, onClick: () => deleteChat(chat) },
+  ], returnFocus);
+}
+
+/** Zweite Ebene: In welchen Ordner soll der Chat? */
+function openFolderChoice(position, chat, returnFocus) {
+  const choices = railFolders.map((folder) => ({
+    title: folder.name, iconName: 'folder', checked: !chat.archived && chat.folder_id === folder.id,
+    onClick: () => moveChat(chat.id, { folder_id: folder.id, archived: false }),
+  }));
+  if (chat.folder_id || chat.archived) {
+    choices.push({ title: t('chat.noFolder'), iconName: 'chat', checked: false,
+      onClick: () => moveChat(chat.id, { folder_id: '', archived: false }) });
+  }
+  choices.push({ title: t('chat.newFolderMove'), iconName: 'folder-plus',
+    onClick: () => newFolder(chat.id) });
+  openFolderContextMenu(position, t('chat.addToFolder'), choices, returnFocus);
+}
+
 /** Markiert ein Ziel während des Ziehens und meldet den fallen gelassenen Chat. */
 function dropZone(node, onDrop) {
   node.addEventListener('dragover', (event) => {
@@ -397,30 +430,32 @@ function dropZone(node, onDrop) {
 
 function chatItem(chat, active, archived = false) {
   const running = stream.isRunning(chat.id);
+  const main = h('button', {
+    class: 'chat-item__main', draggable: 'true', style: 'text-align:left;min-width:0',
+    onclick: () => navigate(`/${activeMode.route}/${chat.id}`),
+  },
+    h('span', { class: 'chat-item__title', text: chat.title }),
+    h('span', { class: 'chat-item__sub', text: running ? t('chat.answering') : `${fmtDate(chat.updated_at)} · ${chat.message_count}` }));
   const node = h('div', {
     class: `chat-item ${active ? 'is-active' : ''}`, draggable: 'true',
-    title: 'Zum Verschieben in einen Ordner ziehen',
+    title: t('chat.dragHint'),
   },
-    h('button', {
-      class: 'chat-item__main', draggable: 'true', style: 'text-align:left;min-width:0',
-      onclick: () => navigate(`/${activeMode.route}/${chat.id}`),
-    },
-      h('span', { class: 'chat-item__title', text: chat.title }),
-      h('span', { class: 'chat-item__sub', text: running ? 'antwortet …' : `${fmtDate(chat.updated_at)} · ${chat.message_count}` })),
-    running ? h('span', { class: 'chat-item__live', title: 'Antwort läuft' }) : null,
+    main,
+    running ? h('span', { class: 'chat-item__live', title: t('chat.answerRunning') }) : null,
     h('span', { class: 'chat-item__tools' },
       archived
         ? h('button', {
-            class: 'icon-btn', title: 'Aus dem Archiv holen',
+            class: 'icon-btn', title: t('chat.unarchive'),
             onclick: () => moveChat(chat.id, { archived: false }),
           }, icon('folder-open'))
         : h('button', {
-            class: 'icon-btn', title: 'Archivieren',
+            class: 'icon-btn', title: t('chat.archive'),
             onclick: () => moveChat(chat.id, { archived: true }),
           }, icon('archive')),
-      h('button', { class: 'icon-btn', title: 'Umbenennen', onclick: () => renameChat(chat) }, icon('pencil')),
-      h('button', { class: 'icon-btn', title: 'Löschen', onclick: () => deleteChat(chat) }, icon('trash'))));
+      h('button', { class: 'icon-btn', title: t('common.rename'), onclick: () => renameChat(chat) }, icon('pencil')),
+      h('button', { class: 'icon-btn', title: t('common.delete'), onclick: () => deleteChat(chat) }, icon('trash'))));
 
+  node.addEventListener('contextmenu', (event) => openChatMenu(event, chat, archived, main));
   node.addEventListener('dragstart', (event) => {
     dragChatId = chat.id;
     node.classList.add('is-dragging');
@@ -452,20 +487,24 @@ async function moveChat(chatId, patch) {
 
 async function newChat() {
   try {
-    const chat = await api.createChat(activeMode.newTitle, activeMode.purpose);
+    const chat = await api.createChat(M('newTitle'), activeMode.purpose);
     navigate(`/${activeMode.route}/${chat.id}`);
   } catch (error) {
     toast(error.message, 'bad');
   }
 }
 
-async function newFolder() {
+/** Neuer Chat-Ordner; mit moveChatId wird der Chat gleich hineingelegt. */
+async function newFolder(moveChatId = null) {
   const name = await promptDialog({
-    title: 'Ordner anlegen', label: 'Name', value: '', confirmLabel: 'Anlegen',
+    title: t('folder.createTitle'), label: t('folder.nameLabel'), value: '', confirmLabel: t('common.create'),
   });
   if (!name) return;
   try {
-    await api.createChatFolder(name, activeMode.purpose);
+    const folder = await api.createChatFolder(name, activeMode.purpose);
+    if (typeof moveChatId === 'string' && folder?.id) {
+      await api.updateChat(moveChatId, { folder_id: folder.id, archived: false });
+    }
     await renderRail(state.activeChatId);
   } catch (error) {
     toast(error.message, 'bad');
@@ -474,7 +513,7 @@ async function newFolder() {
 
 async function renameFolder(folder) {
   const name = await promptDialog({
-    title: 'Ordner umbenennen', label: 'Name', value: folder.name, confirmLabel: 'Umbenennen',
+    title: t('folder.rename'), label: t('folder.nameLabel'), value: folder.name, confirmLabel: t('common.rename'),
   });
   if (!name) return;
   try {
@@ -487,9 +526,9 @@ async function renameFolder(folder) {
 
 async function deleteFolder(folder) {
   const ok = await confirmDialog({
-    title: 'Ordner löschen',
-    message: `„${folder.name}" wird entfernt. Die enthaltenen Chats bleiben erhalten und liegen danach wieder direkt in der Liste.`,
-    confirmLabel: 'Löschen', danger: true,
+    title: t('folder.delete'),
+    message: t('folder.deleteConfirm', { name: folder.name }),
+    confirmLabel: t('common.delete'), danger: true,
   });
   if (!ok) return;
   try {
@@ -502,14 +541,14 @@ async function deleteFolder(folder) {
 
 async function renameChat(chat) {
   const title = await promptDialog({
-    title: 'Chat umbenennen', label: 'Titel', value: chat.title, confirmLabel: 'Umbenennen',
+    title: t('chat.renameTitle'), label: t('chat.titleLabel'), value: chat.title, confirmLabel: t('common.rename'),
   });
   if (!title) return;
   try {
     await api.renameChat(chat.id, title);
     await renderRail(state.activeChatId);
-    if (elements.chat?.id === chat.id) { elements.chat.title = title; renderContext(elements.chat); }
-    toast('Chat umbenannt.', 'ok');
+    if (elements.chat?.id === chat.id) { elements.chat.title = title; renderContext(); }
+    toast(t('chat.renamed'), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -518,18 +557,19 @@ async function renameChat(chat) {
 async function deleteChat(chat) {
   const laufend = stream.isRunning(chat.id);
   const ok = await confirmDialog({
-    title: 'Chat löschen',
+    title: t('chat.deleteConfirmTitle'),
     message: laufend
-      ? `„${chat.title}" antwortet gerade. Die laufende Antwort wird abgebrochen und der Chat endgültig entfernt.`
-      : `„${chat.title}" wird endgültig aus der lokalen Datenbank entfernt.`,
-    confirmLabel: 'Löschen', danger: true,
+      ? `${t('chat.deleteConfirmText')} ${t('chat.deleteRunning')}`
+      : t('chat.deleteConfirmText'),
+    confirmLabel: t('common.delete'), danger: true,
   });
   if (!ok) return;
   try {
     stream.stop(chat.id);
     stream.clearDraft(chat.id);
+    scopeByChat.delete(chat.id);
     await api.deleteChat(chat.id);
-    toast('Chat gelöscht.', 'ok');
+    toast(t('chat.deleted'), 'ok');
     if (state.activeChatId === chat.id) navigate(`/${activeMode.route}`);
     else await renderRail(state.activeChatId);
   } catch (error) {
@@ -538,6 +578,17 @@ async function deleteChat(chat) {
 }
 
 /* ---------------------------------------------------- Nachrichten */
+
+/** Hat die Wissenssuche dieser Antwort nichts gefunden? (Der Hinweis kommt aus der Oberfläche.) */
+function hasNoVaultHit(message) {
+  if (message.role !== 'assistant') return false;
+  if (/^\s*(?:\*\*)?(?:Kein Eintrag gefunden|No entry found)/i.test(message.content || '')) return false;
+  return (message.sources || []).some((step) => step.tool === 'wissenssuche' && step.result?.kein_treffer);
+}
+
+function noHitNotice() {
+  return h('div', { class: 'msg__hint', role: 'note' }, t('answer.noHit'));
+}
 
 function renderMessage(message) {
   const isUser = message.role === 'user';
@@ -556,18 +607,20 @@ function renderMessage(message) {
       ...anhaenge.map((item) => renderMessageAttachment(item))));
   }
 
+  if (hasNoVaultHit(message)) body.append(noHitNotice());
+
   const content = h('div', { class: 'md' });
   content.innerHTML = renderMarkdown(message.content, markdownOptions());
   body.append(content);
 
   const node = h('div', { class: `msg msg--${isUser ? 'user' : 'assistant'}`, dataset: { id: message.id ?? '' } },
     h('div', { class: 'msg__head' },
-      h('span', { class: 'msg__who', text: isUser ? 'Du' : (message.model || 'Modell') }),
+      h('span', { class: 'msg__who', text: isUser ? t('chat.you') : (message.model || t('chat.modelFallback')) }),
       h('span', { class: 'msg__time', text: fmtTime(message.created_at) }),
       h('span', { class: 'msg__tools' },
-        h('button', { class: 'icon-btn', title: 'Antwort kopieren', onclick: () => copyText(currentText(node, message)) }, icon('copy')),
+        h('button', { class: 'icon-btn', title: t('chat.copyAnswer'), onclick: () => copyText(currentText(node, message)) }, icon('copy')),
         !isUser && activeMode.purpose === 'vault'
-          ? h('button', { class: 'icon-btn', title: 'Als Notiz speichern', onclick: () => saveAsNote({ ...message, content: currentText(node, message) }) }, icon('note'))
+          ? h('button', { class: 'icon-btn', title: t('chat.saveAsNote'), onclick: () => saveAsNote({ ...message, content: currentText(node, message) }) }, icon('note'))
           : null)),
     body);
   node._content = content;
@@ -597,24 +650,27 @@ function renderMessageAttachment(item) {
 }
 
 const STEP_LABELS = {
-  anhang_ausgewertet: ['Arbeitsnotizen gespeichert', 'doc'],
-  vault_suchen: ['Vault durchsucht', 'search'],
-  notiz_lesen: ['Notiz gelesen', 'note'],
-  ordner_auflisten: ['Ordner angesehen', 'folder-open'],
-  notiz_erstellen: ['Notiz erstellt', 'plus'],
-  notiz_ergaenzen: ['Notiz ergänzt', 'pencil'],
-  notiz_bearbeiten: ['Notiz bearbeitet', 'pencil'],
-  markdown_dateien_bereinigen: ['Alle Markdown-Dateien geprüft', 'pencil'],
-  dateien_in_unterordner_verschieben: ['Dateien eingeordnet und Links aktualisiert', 'folder'],
-  anhang_in_vault_ablegen: ['Original abgelegt', 'clip'],
-  dateien_verknuepfen: ['Dateien verknüpft', 'note'],
-  wissenssuche: ['Wissen abgeglichen', 'search'],
+  anhang_ausgewertet: ['step.attachmentNotes', 'doc'],
+  vault_suchen: ['step.vaultSearched', 'search'],
+  notiz_lesen: ['step.noteRead', 'note'],
+  ordner_auflisten: ['step.folderViewed', 'folder-open'],
+  notiz_erstellen: ['step.noteCreated', 'plus'],
+  notiz_ergaenzen: ['step.noteExtended', 'pencil'],
+  notiz_bearbeiten: ['step.noteEdited', 'pencil'],
+  markdown_dateien_bereinigen: ['step.markdownChecked', 'pencil'],
+  dateien_in_unterordner_verschieben: ['step.filesOrganized', 'folder'],
+  anhang_in_vault_ablegen: ['step.originalStored', 'clip'],
+  dateien_verknuepfen: ['step.filesLinked', 'note'],
+  wissenssuche: ['step.knowledgeChecked', 'search'],
+  bildwissen_speichern: ['step.imageKnowledge', 'image'],
+  datei_direkt: ['step.directAction', 'files'],
 };
 
 /** Eine Zeile pro Werkzeugaufruf — nachvollziehbar, was die KI im Vault getan hat. */
 function renderStep(step, pending = false) {
   if (step.tool === 'varianten' && step.result?.varianten) return variantChooser(step.result);
-  const [label, iconName] = STEP_LABELS[step.tool] || [step.tool, 'files'];
+  const [labelKey, iconName] = STEP_LABELS[step.tool] || [null, 'files'];
+  const label = labelKey ? t(labelKey) : String(step.tool || '');
   const result = step.result || {};
   const ziel = result.erstellt || result.ergaenzt || result.bearbeitet || result.abgelegt || result.notiz || result.pfad
     || step.arguments?.pfad || step.arguments?.suchbegriff || '';
@@ -624,7 +680,10 @@ function renderStep(step, pending = false) {
   else if (result.fehler) detail = result.fehler;
   else if (result.anzahl !== undefined) {
     const query = step.arguments?.suchbegriff || step.arguments?.query || '';
-    detail = `${query ? `„${query}" — ` : ''}${result.anzahl} Treffer${result.semantisch ? ' · semantisch' : ''}`;
+    const parts = [t('step.hits', { n: result.anzahl })];
+    if (result.semantisch) parts.push(t('step.semantic'));
+    if (step.arguments?.bereich) parts.push(t('step.inScope', { scope: step.arguments.bereich }));
+    detail = `${query ? `„${query}" — ` : ''}${parts.join(' · ')}`;
   }
   else if (result.hinweis && !result.treffer?.length) detail = result.hinweis;
 
@@ -642,9 +701,16 @@ function renderStep(step, pending = false) {
   ];
 
   return oeffnet
-    ? h('button', { class: classes.join(' '), title: `${oeffnet} öffnen`,
+    ? h('button', { class: classes.join(' '), title: t('step.open', { path: oeffnet }),
         onclick: () => navigate(`/files?path=${encodeURIComponent(oeffnet)}`) }, ...kinder)
     : h('div', { class: classes.join(' ') }, ...kinder);
+}
+
+/** Titel einer Variante in der aktuellen Sprache (Reihenfolge: Strikt, Strukturiert, Erweitert). */
+function variantTitle(variants, index) {
+  if (variants.length === 3) return t(['variants.strict', 'variants.structured', 'variants.extended'][index]);
+  if (variants.length === 1) return t('variants.refined');
+  return variants[index]?.titel || t('variants.n', { n: index + 1 });
 }
 
 /** Variante 1 | Variante 2 | Variante 3 | Ändern — gespeichert wird erst nach der Wahl. */
@@ -652,8 +718,8 @@ function variantChooser(result) {
   const variants = result.varianten || [];
   let selected = Math.min(1, variants.length - 1);
   const preview = h('div', { class: 'md variant__preview' });
-  const path = h('input', { class: 'input input--mono', value: result.ziel, 'aria-label': 'Zielpfad im Vault',
-    readOnly: !result.neu, title: result.neu ? 'Neue Notiz – Pfad anpassbar' : 'Bestehende Notiz wird ersetzt' });
+  const path = h('input', { class: 'input input--mono', value: result.ziel, 'aria-label': t('variants.targetPath'),
+    readOnly: !result.neu, title: result.neu ? t('variants.pathEditable') : t('variants.willReplace') });
   const status = h('p', { class: 'field__hint', role: 'status', 'aria-live': 'polite' });
   const tabs = h('div', { class: 'variant__tabs', role: 'tablist' });
   const show = (index) => {
@@ -666,29 +732,29 @@ function variantChooser(result) {
   };
   variants.forEach((variant, index) => tabs.append(h('button', {
     class: 'btn btn--sm', type: 'button', role: 'tab', onclick: () => show(index),
-  }, variant.titel || `Variante ${index + 1}`)));
+  }, variantTitle(variants, index))));
 
   const apply = h('button', { class: 'btn btn--sm btn--primary', type: 'button', onclick: async () => {
     apply.disabled = true;
-    status.textContent = 'Wird gespeichert …';
+    status.textContent = t('variants.saving');
     try {
       const saved = await api.post(`/api/chats/${state.activeChatId}/variants/apply`,
         { message_id: result.message_id, index: selected, path: path.value });
-      status.textContent = `${saved.overwritten ? 'Ersetzt' : 'Gespeichert'}: ${saved.path} · rückgängig über die Kontextspalte.`;
-      toast(`Im Vault gespeichert: ${saved.path}`, 'ok');
+      status.textContent = t(saved.overwritten ? 'variants.replaced' : 'variants.savedAt', { path: saved.path });
+      toast(t('chat.savedInVault', { path: saved.path }), 'ok');
       await refreshFileIndex();
-      renderContext(elements.chat);
+      renderContext();
     } catch (error) {
       status.textContent = error.message;
       apply.disabled = false;
     }
-  } }, 'Übernehmen');
+  } }, t('variants.apply'));
   const change = h('button', { class: 'btn btn--sm', type: 'button',
-    onclick: () => startRefine(result.message_id, selected, variants[selected]?.titel || 'Variante') }, 'Ändern');
+    onclick: () => startRefine(result.message_id, selected, variantTitle(variants, selected)) }, t('variants.change'));
 
   const card = h('section', { class: 'card variant' },
     h('div', { class: 'variant__head' }, tabs, h('span', { class: 'spacer' }), change, apply),
-    h('label', { class: 'label', text: result.neu ? 'Neue Notiz' : 'Ersetzt bestehende Notiz' }), path,
+    h('label', { class: 'label', text: result.neu ? t('variants.newNote') : t('variants.replacesNote') }), path,
     preview, status);
   show(selected);
   return card;
@@ -703,7 +769,8 @@ function renderVariantProgress(event, run) {
     live.node._steps.append(live.variants);
   }
   const current = run.variants[event.index] || {};
-  live.variants.querySelector('.label').textContent = `${current.title || 'Variante'} wird erstellt …`;
+  const title = t(['variants.strict', 'variants.structured', 'variants.extended'][event.index] || 'variants.refined');
+  live.variants.querySelector('.label').textContent = t('variants.creating', { title });
   live.variants.querySelector('.md').innerHTML = renderMarkdown(current.text || '', markdownOptions());
 }
 
@@ -716,13 +783,15 @@ function renderAnalysis(event) {
     live.node.querySelector('.msg__body').prepend(block);
     live.analyses.set(event.name, block);
   }
-  block.querySelector('summary').textContent = `Arbeitsnotizen · ${event.name} · ${event.error ? 'unvollständig' : 'gespeichert'}`;
+  block.querySelector('summary').textContent = t('analysis.summary', {
+    name: event.name, state: event.error ? t('analysis.incomplete') : t('analysis.saved'),
+  });
   block.querySelector('pre').textContent = [event.text, event.error].filter(Boolean).join('\n\n');
 }
 
 function thinkingBlock(text) {
   return h('details', { class: 'msg__think' },
-    h('summary', { text: 'Gedankengang' }),
+    h('summary', { text: t('chat.thoughtProcess') }),
     h('pre', { text }));
 }
 
@@ -730,22 +799,14 @@ function starter() {
   const status = state.status;
   const askMode = activeMode.purpose === 'ask';
   const examples = askMode
-    ? [
-      'Was sind die wichtigsten Aussagen in meiner Wissensbasis?',
-      'Erkläre das Thema anhand meiner Notizen und ergänze KI-Wissen.',
-      'Welche lokalen Quellen passen zu meiner Frage?',
-    ]
-    : [
-      'Erstelle aus meinen Angaben eine strukturierte Notiz.',
-      'Übernimm die angehängte Datei in den Vault und fasse sie zusammen.',
-      'Ergänze eine vorhandene Notiz um diese Information.',
-    ];
+    ? [t('starter.ask.1'), t('starter.ask.2'), t('starter.ask.3')]
+    : [t('starter.vault.1'), t('starter.vault.2'), t('starter.vault.3')];
   return h('div', { class: 'empty', style: 'padding-top:60px' },
     icon(askMode ? 'question' : 'chat'),
-    h('h3', { text: askMode ? 'Wissensbasis + KI' : 'Vault-Wissen erweitern' }),
+    h('h3', { text: askMode ? t('starter.ask.title') : t('starter.vault.title') }),
     h('p', { text: askMode
-      ? 'Frage dein lokales Wissen ab. Fehlende Zusammenhänge darf die KI klar gekennzeichnet ergänzen.'
-      : `Informationen und Dateien werden mit ${status?.model?.name || 'dem lokalen Modell'} in deinen Vault eingepflegt.` }),
+      ? t('starter.ask.text')
+      : t('starter.vault.text', { model: status?.model?.name || t('starter.localModel') }) }),
     h('div', { class: 'row row--wrap', style: 'justify-content:center;margin-top:6px' },
       ...examples.map((example) => h('button', {
         class: 'btn btn--sm',
@@ -756,18 +817,20 @@ function starter() {
 function emptyState() {
   return h('div', { class: 'empty', style: 'height:100%' },
     icon(activeMode.purpose === 'ask' ? 'question' : 'chat'),
-    h('h3', { text: activeMode.emptyTitle }),
-    h('p', { text: activeMode.emptyText }),
-    h('button', { class: 'btn btn--primary', onclick: newChat }, icon('plus'), activeMode.newLabel));
+    h('h3', { text: M('emptyTitle') }),
+    h('p', { text: M('emptyText') }),
+    h('button', { class: 'btn btn--primary', onclick: newChat }, icon('plus'), M('newLabel')));
 }
 
 /* ------------------------------------------------------- Composer */
 
+const placeholderText = () => `${M('placeholder')}  ${t('composer.keys')}`;
+
 function composer() {
   const askMode = activeMode.purpose === 'ask';
   const input = h('textarea', {
-    rows: 1, placeholder: `${activeMode.placeholder}  (Enter senden, Umschalt+Enter neue Zeile)`,
-    'aria-label': activeMode.placeholder,
+    rows: 1, placeholder: placeholderText(),
+    'aria-label': M('placeholder'),
     oninput: (event) => {
       autosize(event.target);
       // Laufend sichern, damit auch ein Klick in der Navigation nichts kostet.
@@ -791,15 +854,15 @@ function composer() {
   elements.fileInput = dateiwahl;
 
   const plus = askMode ? null : h('button', {
-    class: 'composer__add', title: 'Dateien anhängen — Bilder, Dokumente, Quellcode',
-    'aria-label': 'Dateien anhängen', onclick: () => dateiwahl.click(),
+    class: 'composer__add', title: t('composer.attach'),
+    'aria-label': t('composer.attachLabel'), onclick: () => dateiwahl.click(),
   }, icon('plus'));
 
   const chips = h('div', { class: 'composer__files' });
   elements.chips = chips;
 
-  const sendButton = h('button', { class: 'btn btn--primary', onclick: send }, icon('send'), 'Senden');
-  const stopButton = h('button', { class: 'btn', onclick: stopCurrent, style: 'display:none' }, 'Stopp');
+  const sendButton = h('button', { class: 'btn btn--primary', onclick: send }, icon('send'), t('chat.send'));
+  const stopButton = h('button', { class: 'btn', onclick: stopCurrent, style: 'display:none' }, t('chat.stop'));
   elements.sendButton = sendButton;
   elements.stopButton = stopButton;
 
@@ -815,57 +878,112 @@ function composer() {
 
   unsubscribe.push(on('status', syncComposerMeta));
   syncComposerMeta(state.status);
+  fillScopeSelect();
+  syncVariantToggle();
   if (!askMode) wireDropzone(box);
   return wrapper;
+}
+
+/** Beschriftetes Auswahlfeld über dem Dropdown (Modell, Suchbereich). */
+function composerField(labelKey, control) {
+  return h('label', { class: 'composer__field' },
+    h('span', { class: 'composer__field-label', text: t(labelKey) }), control);
+}
+
+/** Schiebeschalter im Stil des Thinking-Schalters. */
+function composerSwitch(checkbox, labelNode) {
+  return h('label', { class: 'switch composer__think' },
+    checkbox, h('span', { class: 'switch__track' }), labelNode);
 }
 
 function composerMeta() {
   const select = h('select', {
     class: 'composer__model',
-    'aria-label': 'Chat-Modell',
+    'aria-label': t('composer.model'),
     onchange: (event) => changeChatModel(event.target.value),
+  });
+  const scope = h('select', {
+    class: 'composer__model composer__scope',
+    'aria-label': t('composer.scope'),
+    title: t('composer.scopeHint'),
+    onchange: (event) => {
+      if (event.target.value) scopeByChat.set(state.activeChatId, event.target.value);
+      else scopeByChat.delete(state.activeChatId);
+      renderContext();
+    },
   });
   const checkbox = h('input', {
     type: 'checkbox',
     onchange: (event) => changeThinking(event.target.checked),
   });
-  const think = h('label', { class: 'switch composer__think' },
-    checkbox,
-    h('span', { class: 'switch__track' }),
-    h('span', { class: 'composer__think-label', text: 'Thinking' }));
+  const think = composerSwitch(checkbox, h('span', { class: 'composer__think-label', text: 'Thinking' }));
   elements.modelSelect = select;
+  elements.scopeSelect = scope;
   elements.thinkToggle = checkbox;
   elements.thinkLabel = think;
-  const controls = h('div', { class: 'composer__side' }, select, think);
+  const controls = h('div', { class: 'composer__side' },
+    composerField('composer.model', select), composerField('composer.scope', scope), think);
   if (activeMode.purpose === 'vault') {
     // Nur für größere Schreibaufträge: drei Fassungen zur Auswahl vor dem Speichern.
-    elements.variantToggle = h('input', { type: 'checkbox' });
-    controls.append(h('label', {
-      class: 'composer__option',
-      title: 'Bei größeren Notizaufträgen drei Varianten (Strikt, Strukturiert, Erweitert) zur Auswahl erzeugen. Einfache Aufgaben laufen weiter direkt.',
-    }, elements.variantToggle, 'Varianten'));
+    elements.variantToggle = h('input', { type: 'checkbox', onchange: () => { syncVariantToggle(); renderContext(); } });
+    elements.variantLabel = h('span', { class: 'composer__think-label' });
+    const variants = composerSwitch(elements.variantToggle, elements.variantLabel);
+    variants.title = t('variants.hint');
+    elements.variantSwitch = variants;
+    controls.append(variants);
     elements.refineHint = h('span', { class: 'composer__refine', hidden: true });
     controls.append(elements.refineHint);
   }
   return controls;
 }
 
+function syncVariantToggle() {
+  if (!elements.variantToggle) return;
+  elements.variantLabel.textContent = elements.variantToggle.checked ? t('variants.on') : t('variants.off');
+}
+
+/** Alle Ordner des Vaults mit Dateien (mit Unterordnern), abgeleitet aus dem Dateiindex. */
+function vaultFolders() {
+  const folders = new Set();
+  for (const file of state.files) {
+    const parts = file.path.split('/');
+    parts.pop();
+    for (let index = 1; index <= parts.length; index += 1) folders.add(parts.slice(0, index).join('/'));
+  }
+  return [...folders].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
+}
+
+const currentScope = () => scopeByChat.get(state.activeChatId) || '';
+
+function fillScopeSelect() {
+  const select = elements.scopeSelect;
+  if (!select) return;
+  const folders = vaultFolders();
+  let value = currentScope();
+  if (value && !folders.includes(value)) { value = ''; scopeByChat.delete(state.activeChatId); }
+  select.replaceChildren(
+    h('option', { value: '', text: t('search.allFolders') }),
+    ...folders.map((folder) => h('option', { value: folder, text: folder })));
+  select.value = value;
+  select.disabled = !vaultReady();
+}
+
 /** "Ändern": die nächste Eingabe überarbeitet genau diese Variante. */
 function startRefine(messageId, index, title) {
   elements.variantBase = { message_id: messageId, index };
   if (elements.refineHint) {
-    elements.refineHint.replaceChildren(`${title} ändern`,
-      h('button', { class: 'icon-btn', type: 'button', title: 'Ändern abbrechen', onclick: stopRefine }, icon('close')));
+    fill(elements.refineHint, t('variants.changing', { title }),
+      h('button', { class: 'icon-btn', type: 'button', title: t('variants.cancelChange'), onclick: stopRefine }, icon('close')));
     elements.refineHint.hidden = false;
   }
-  elements.input.placeholder = 'Was soll an dieser Variante anders werden? (z. B. kürzer, mit Tabelle)';
+  elements.input.placeholder = t('variants.refinePlaceholder');
   elements.input.focus();
 }
 
 function stopRefine() {
   elements.variantBase = null;
   if (elements.refineHint) elements.refineHint.hidden = true;
-  if (elements.input) elements.input.placeholder = `${activeMode.placeholder}  (Enter senden, Umschalt+Enter neue Zeile)`;
+  if (elements.input) elements.input.placeholder = placeholderText();
 }
 
 function fillModelSelect(select, status) {
@@ -883,7 +1001,7 @@ function fillModelSelect(select, status) {
     select.append(h('option', { value: current, text: current }));
   }
   if (!names.length && !current) {
-    select.append(h('option', { value: '', text: 'kein Modell' }));
+    select.append(h('option', { value: '', text: t('composer.noModel') }));
   }
   for (const model of models) {
     select.append(h('option', { value: model.name, text: model.name }));
@@ -907,11 +1025,9 @@ function syncComposerMeta(status) {
   }
   checkbox.checked = canThink && Boolean(status?.ai?.thinking);
   label.querySelector('.composer__think-label').textContent = canThink
-    ? (checkbox.checked ? 'Thinking an' : 'Thinking aus') : 'Thinking nicht verfügbar';
+    ? (checkbox.checked ? t('chat.thinkingOn') : t('chat.thinkingOff')) : t('chat.thinkingUnavailableShort');
   label.classList.toggle('is-disabled', !canThink);
-  label.title = canThink
-    ? 'Denkprozess des Modells ein- oder ausschalten.'
-    : 'Dieses Modell unterstützt keinen Denkprozess.';
+  label.title = canThink ? t('chat.thinkingToggleHint') : t('chat.thinkingUnsupported');
 }
 
 async function patchProfile(body) {
@@ -982,17 +1098,17 @@ async function addFiles(dateien) {
 
   const frei = MAX_ATTACHMENTS - attachmentState.length;
   if (frei <= 0) {
-    toast(`Mehr als ${MAX_ATTACHMENTS} Anhänge je Chat sind nicht möglich.`, 'bad');
+    toast(t('attach.tooMany', { max: MAX_ATTACHMENTS }), 'bad');
     return;
   }
   if (dateien.length > frei) {
-    toast(`Nur ${frei} von ${dateien.length} Dateien passen noch dazu.`, 'bad');
+    toast(t('attach.onlyFree', { free: frei, total: dateien.length }), 'bad');
     dateien = dateien.slice(0, frei);
   }
 
   const platzhalter = h('span', { class: 'filechip filechip--busy' },
     icon('clip', 'filechip__icon'),
-    h('span', { class: 'filechip__name', text: `${dateien.length} Datei(en) werden übertragen …` }));
+    h('span', { class: 'filechip__name', text: t('attach.uploading', { n: dateien.length }) }));
   elements.chips?.append(platzhalter);
 
   try {
@@ -1001,8 +1117,8 @@ async function addFiles(dateien) {
     for (const problem of ergebnis.fehler || []) toast(`${problem.name}: ${problem.grund}`, 'bad');
     if (ergebnis.gespeichert?.length) {
       toast(ergebnis.gespeichert.length === 1
-        ? `Im Vault gespeichert: ${ergebnis.gespeichert[0].vault_path}`
-        : `${ergebnis.gespeichert.length} Dateien im Vault gespeichert.`, 'ok');
+        ? t('chat.savedInVault', { path: ergebnis.gespeichert[0].vault_path })
+        : t('chat.filesSavedInVault', { n: ergebnis.gespeichert.length }), 'ok');
       await refreshFileIndex();
     }
   } catch (error) {
@@ -1039,7 +1155,7 @@ function renderChips() {
       vorschau,
       h('span', { class: 'filechip__name', text: item.name }),
       h('button', {
-        class: 'filechip__remove', title: 'Aus dem Chat entfernen (Vault-Datei bleibt)',
+        class: 'filechip__remove', title: t('attach.removeFromChat'),
         onclick: () => removeAttachment(item.name),
       }, icon('close'))));
   }
@@ -1078,28 +1194,26 @@ function setSending(sending) {
   elements.sendButton.style.display = sending ? 'none' : '';
   elements.stopButton.style.display = sending ? '' : 'none';
   elements.stopButton.disabled = false;
-  elements.stopButton.textContent = 'Stopp';
+  elements.stopButton.textContent = t('chat.stop');
   // Das Eingabefeld bleibt bedienbar: Die nächste Frage darf schon getippt werden.
-  elements.input.placeholder = sending
-    ? 'Antwort läuft — du kannst schon weiterschreiben …'
-    : `${activeMode.placeholder}  (Enter senden, Umschalt+Enter neue Zeile)`;
+  elements.input.placeholder = sending ? t('composer.running') : placeholderText();
 }
 
 async function stopCurrent() {
-  if (await stream.stop(state.activeChatId)) toast('Antwort gestoppt.');
+  if (await stream.stop(state.activeChatId)) toast(t('chat.stopped'));
 }
 
 function send() {
-  if (settingsPending) { toast('Modell-Einstellung wird noch gespeichert …'); return; }
+  if (settingsPending) { toast(t('chat.settingSaving')); return; }
   const content = elements.input.value;
   if ((!content.trim() && !attachmentState.length) || !state.activeChatId) return;
 
   if (stream.isRunning(state.activeChatId)) {
-    toast('Dieser Chat antwortet gerade noch.');
+    toast(t('chat.stillAnswering'));
     return;
   }
   if (activeMode.purpose === 'ask' && !state.status?.ollama?.online) {
-    toast('Ollama ist nicht erreichbar. Starte den Dienst und versuche es erneut.', 'bad');
+    toast(t('chat.ollamaOffline'), 'bad');
     return;
   }
 
@@ -1120,9 +1234,10 @@ function send() {
   if (elements.refineHint) elements.refineHint.hidden = true;
   stream.send(
     state.activeChatId,
-    content.trim() ? content : 'Übernimm die angehängten Dateien in den Vault und dokumentiere ihren Inhalt.',
+    content.trim() ? content : t('chat.defaultAttachPrompt'),
     { model: elements.modelSelect.value, thinking: elements.thinkToggle.checked,
-      variants: Boolean(elements.variantToggle?.checked), variant_base: variantBase },
+      variants: Boolean(elements.variantToggle?.checked), variant_base: variantBase,
+      scope: currentScope() },
   );
 }
 
@@ -1134,7 +1249,7 @@ function onStreamEvent({ chatId, event, run }) {
 
   if (event.type === 'stopping' || event.type === 'stop_failed') {
     elements.stopButton.disabled = event.type === 'stopping';
-    elements.stopButton.textContent = event.type === 'stopping' ? 'Wird gestoppt …' : 'Stopp';
+    elements.stopButton.textContent = event.type === 'stopping' ? t('chat.stopping') : t('chat.stop');
     if (event.type === 'stop_failed') toast(event.message, 'bad');
     return;
   }
@@ -1152,7 +1267,7 @@ function onStreamEvent({ chatId, event, run }) {
   }
 
   if (event.type === 'start') {
-    if (live) live.node.querySelector('.msg__who').textContent = `${event.model} · ${event.execution === 'direct' ? 'Direktaktion · kein Modellaufruf' : event.thinking === null ? 'Thinking nicht verfügbar' : event.thinking ? 'Thinking an' : 'Thinking aus'}`;
+    if (live) live.node.querySelector('.msg__who').textContent = `${event.model} · ${modeLabel(event.execution, event.thinking)}`;
     if (live?.node) {
       // Der Platzhalter der Anhang-Auswertung wird zur echten Antwort.
       live.caret = h('span', { class: 'caret' });
@@ -1177,8 +1292,8 @@ function onStreamEvent({ chatId, event, run }) {
   if (event.type === 'knowledge_progress') {
     live.knowledge = h('div', { class: 'step step--pending' },
       icon('search', 'step__icon'),
-      h('span', { class: 'step__label', text: 'Wissensindex' }),
-      h('span', { class: 'step__detail', text: event.message || 'wird abgeglichen …' }));
+      h('span', { class: 'step__label', text: t('knowledge.index') }),
+      h('span', { class: 'step__detail', text: t('knowledge.searching') }));
     live.node._steps.append(live.knowledge);
     scrollToEnd();
     return;
@@ -1194,12 +1309,13 @@ function onStreamEvent({ chatId, event, run }) {
     if (!live.progress) {
       live.progress = h('div', { class: 'step step--pending' },
         icon('clip', 'step__icon'),
-        h('span', { class: 'step__label', text: 'Anhänge' }),
+        h('span', { class: 'step__label', text: t('attach.label') }),
         h('span', { class: 'step__detail' }));
       live.node._steps.append(live.progress);
     }
+    const statusText = { cached: 'attach.fromNotes', saved: 'attach.cachedShort', partial: 'attach.partial' }[event.status] || 'attach.reading';
     live.progress.querySelector('.step__detail').textContent =
-      `${event.nummer}/${event.gesamt} — ${event.name}${event.seite ? ` · Seite ${event.seite}/${event.seiten}` : ''} · ${event.status === 'cached' ? 'aus Arbeitsnotizen übernommen' : event.status === 'saved' ? 'zwischengespeichert' : event.status === 'partial' ? 'unvollständig' : 'wird gelesen …'}`;
+      `${event.nummer}/${event.gesamt} — ${event.name}${event.seite ? ` · ${t('attach.page', { page: event.seite, pages: event.seiten })}` : ''} · ${t(statusText)}`;
     if (event.text || event.error) renderAnalysis(event);
     scrollToEnd();
     return;
@@ -1209,7 +1325,7 @@ function onStreamEvent({ chatId, event, run }) {
     if (live.progress) {
       live.progress.className = 'step';
       live.progress.querySelector('.step__detail').textContent =
-        `${event.anzahl} Datei(en) bearbeitet · ${event.unvollstaendig || 0} unvollständig`;
+        t('attach.done', { n: event.anzahl, incomplete: event.unvollstaendig || 0 });
       live.progress = null;
     }
     return;
@@ -1245,13 +1361,18 @@ function onStreamEvent({ chatId, event, run }) {
     if (live.pending) live.pending.replaceWith(fertig);
     else live.node._steps.append(fertig);
     live.pending = null;
+    // Nichts im Vault gefunden: Der Hinweis erscheint einmal über der Antwort.
+    if (event.tool === 'wissenssuche' && event.result?.kein_treffer && !live.noHit) {
+      live.noHit = noHitNotice();
+      live.node._content.before(live.noHit);
+    }
     scrollToEnd();
     return;
   }
 
   if (event.type === 'thinking') {
     if (run.thinkingEnabled === false) {
-      live.node.querySelector('.msg__who').textContent = `${run.model} · Thinking trotz deaktivierter Einstellung empfangen`;
+      live.node.querySelector('.msg__who').textContent = `${run.model} · ${t('chat.thinkingDespiteOff')}`;
     }
     if (!live.thinkingNode) {
       live.thinkingNode = thinkingBlock('');
@@ -1276,8 +1397,8 @@ function onStreamEvent({ chatId, event, run }) {
     if (run.changedFiles?.length) {
       refreshFileIndex();
       toast(run.changedFiles.length === 1
-        ? `Im Vault gespeichert: ${run.changedFiles[0]}`
-        : `${run.changedFiles.length} Dateien im Vault geschrieben.`, 'ok');
+        ? t('chat.savedInVault', { path: run.changedFiles[0] })
+        : t('chat.filesWritten', { n: run.changedFiles.length }), 'ok');
     }
     endLive();
     return;
@@ -1303,17 +1424,17 @@ function endLive() {
 
 async function saveAsNote(message) {
   if (!vaultReady()) {
-    toast('Es ist kein Vault ausgewählt. Lege ihn in den Einstellungen fest.', 'bad');
+    toast(t('chat.noVaultSet'), 'bad');
     return;
   }
-  const title = (elements.chat?.title || 'KI-Antwort').replace(/[\\/:*?"<>|]/g, '-').slice(0, 60);
+  const title = (elements.chat?.title || t('note.aiAnswerFallback')).replace(/[\\/:*?"<>|]/g, '-').slice(0, 60);
   const target = `02 KI-Notizen/${title}.md`;
   const stamp = new Date().toISOString().slice(0, 10);
-  const body = `# ${title}\n\n${message.content}\n\n---\nQuelle: Chat vom ${stamp} · Modell ${message.model || ''}\n`;
+  const body = `# ${title}\n\n${message.content}\n\n---\n${t('note.sourceLine', { date: stamp, model: message.model || '' })}\n`;
 
   try {
     const result = await api.writeFile(target, body, false, true);
-    toast(`Notiz gespeichert: ${result.path}`, 'ok');
+    toast(t('chat.noteSaved', { path: result.path }), 'ok');
     await refreshFileIndex();
   } catch (error) {
     toast(error.message, 'bad');
@@ -1323,21 +1444,29 @@ async function saveAsNote(message) {
 /* --------------------------------------------------------- Kontext */
 
 function renderContext() {
-  const status = state.status;
   if (!elements.context) return;
-  clear(elements.context).append(
+  const status = state.status;
+  const model = status?.model || {};
+  const scope = currentScope();
+  const thinking = model.thinking === undefined || model.thinking === null ? null
+    : model.thinking ? (status?.ai?.thinking ? t('ctx.thinkingActive') : t('ctx.thinkingOff')) : t('ctx.thinkingUnsupported');
+  const vision = model.vision === undefined || model.vision === null ? null : (model.vision ? t('common.yes') : t('common.no'));
+
+  fill(elements.context,
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Modus' }),
-      h('strong', { class: 'ctx-mode', text: activeMode.label }),
-      h('p', { class: 'field__hint', text: activeMode.purpose === 'ask'
-        ? 'Antwortet aus deinem Vault mit Quellenlinks. Ohne Treffer: „Kein Eintrag gefunden – KI-Wissen“. Keine Vault-Änderungen.'
-        : 'Nimmt Informationen und Dateien auf und darf den Vault gezielt erweitern oder bearbeiten. „Varianten“ zeigt bei größeren Aufträgen drei Fassungen zur Auswahl.' })),
+      h('span', { class: 'label', text: t('ctx.mode') }),
+      h('strong', { class: 'ctx-mode', text: M('label') }),
+      h('p', { class: 'field__hint', text: t(`mode.${activeMode.purpose}.description`) })),
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Modell · nächste Nachricht' }),
-      h('dl', { class: 'ctx-kv' },
-        h('dt', { text: 'Name' }), h('dd', { text: status?.model?.name || '–' }),
-        h('dt', { text: 'Bilder' }), h('dd', { text: status?.model?.vision ? 'ja' : 'nein' }),
-        h('dt', { text: 'Thinking' }), h('dd', { text: status?.model?.thinking ? (status?.ai?.thinking ? 'aktiv' : 'ausgeschaltet') : 'nicht unterstützt' }))),
+      h('span', { class: 'label', text: t('ctx.modelNext') }),
+      kv([
+        [t('ctx.name'), model.name],
+        [t('ctx.images'), vision],
+        [t('ctx.searchScope'), scope || t('search.allFolders')],
+        [t('ctx.thinking'), thinking],
+        [t('ctx.variants'), activeMode.purpose === 'vault' && elements.variantToggle
+          ? (elements.variantToggle.checked ? t('common.on') : t('common.off')) : null],
+      ])),
     activeMode.purpose === 'vault' ? h('div', { class: 'ctx-block' }, undoButton()) : null,
   );
 }

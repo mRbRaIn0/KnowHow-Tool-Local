@@ -488,6 +488,29 @@ Fehlt auch dort Vision, wird die Auswertung als unvollständig gemeldet.
 Es gibt keinen automatischen Modelldownload. Externe Ollama-Clients werden
 von der App nicht kontrolliert.
 
+## V1.5: Suchbereich, Sprache und Hinweise
+
+- **Suchbereich.** Die Nachricht kann einen Vault-Ordner mitschicken (`scope`). Der Ordner
+  wird zum Kontextfokus (Präfix, Unterordner zählen mit) und begrenzt Volltext-, Vektor-
+  und Lesezugriffe. Ausdrücklich genannte Dateien im Auftrag bleiben zusätzlich erlaubt.
+  Im Fragen-Chat werden Treffer in einem gewählten Ordner weiterhin auf Relevanz geprüft;
+  nur genannte Einzeldateien sind davon ausgenommen. `00 Inhalt.md` und `Obsidian_Syntax.md`
+  zählen bei Wissensfragen nie als Quelle.
+- **Kein Treffer.** Der Suchschritt trägt `kein_treffer: true`; die Oberfläche zeigt daraus
+  einmal `Kein Eintrag gefunden – KI-Wissen:`. Der Hinweis ist weder Prompt noch Antworttext.
+  Ein vom Modell trotzdem vorangestellter Hinweis (Deutsch oder Englisch) wird am
+  Antwortanfang entfernt, bevor er sichtbar wird. Kosten: Der Anfang einer solchen Antwort
+  erscheint bis zur ersten Zeile bzw. 160 Zeichen leicht verzögert.
+- **Sprache.** `ui.language` (`de`/`en`) bestimmt die Oberfläche, die vom Server erzeugten
+  Bestätigungen und Fehlermeldungen (`backend/i18n.py`) und die Antwortsprache der KI
+  (Sprachregel im Systemprompt). Die Anweisungen an das Modell bleiben deutsch. Direkte
+  Dateibefehle („Füge diesen Text zu … hinzu“) und viele Freitext-Erkennungen sind deutsch;
+  die vorbereiteten Aufträge der Oberfläche werden in beiden Sprachen erkannt.
+- **Rechtsklickmenü** für Chats: zu Ordner hinzufügen, archivieren, löschen; Löschen verlangt
+  eine Bestätigung und ist endgültig.
+
+---
+
 ## Inhaltliche Qualität einer Notiz
 
 Die KI soll aus den verfügbaren Informationen einen sofort nutzbaren Text

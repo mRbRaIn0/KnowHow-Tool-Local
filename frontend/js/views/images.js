@@ -2,6 +2,7 @@
 
 import { api } from '../api.js';
 import { askAIWithFile, dropZone } from '../capture.js';
+import { t } from '../i18n.js';
 import { copyText, h, icon } from '../util.js';
 import { navigate, on, state, vaultReady } from '../store.js';
 
@@ -15,31 +16,31 @@ export async function mount({ el }) {
   const view = h('div', { class: 'view' });
   el.main.append(view);
   if (!vaultReady()) {
-    view.append(h('div', { class: 'empty' }, icon('image'), h('h3', { text: 'Kein Vault ausgewählt' })));
+    view.append(h('div', { class: 'empty' }, icon('image'), h('h3', { text: t('common.noVault') })));
     return;
   }
   const grid = h('div');
   const count = h('span', { class: 'label' });
-  const filter = h('input', { class: 'input', placeholder: 'Bilder filtern …', 'aria-label': 'Bilder filtern' });
+  const filter = h('input', { class: 'input', placeholder: t('images.filter'), 'aria-label': t('images.filter') });
   const render = () => {
     const query = filter.value.trim().toLowerCase();
-    const images = state.files.filter((file) => file.kind === 'image'
-      && (!query || file.path.toLowerCase().includes(query)));
-    count.textContent = `${state.files.filter((file) => file.kind === 'image').length} Bilder`;
+    const all = state.files.filter((file) => file.kind === 'image');
+    const images = all.filter((file) => !query || file.path.toLowerCase().includes(query));
+    count.textContent = t('images.count', { n: all.length });
     grid.replaceChildren(images.length
       ? h('div', { class: 'asset-grid' }, ...images.slice(0, 400).map(card))
-      : h('div', { class: 'empty' }, icon('image'), h('h3', { text: query ? 'Kein passendes Bild' : 'Noch keine Bilder im Vault' })));
+      : h('div', { class: 'empty' }, icon('image'), h('h3', { text: query ? t('images.noMatch') : t('images.none') })));
   };
   filter.addEventListener('input', render);
 
-  const zone = dropZone({ label: 'Bilder hier ablegen', accept: 'image/*', onSaved: render });
+  const zone = dropZone({ label: t('images.dropLabel'), accept: 'image/*', onSaved: render });
   document.addEventListener('paste', zone.pasteHandler);
   cleanup.push(() => document.removeEventListener('paste', zone.pasteHandler), on('files', render));
 
   view.append(
     h('div', { class: 'page-head' }, count,
-      h('h1', { text: 'Bilder' }),
-      h('p', { text: `Screenshots, Fotos und Scans. Neue Bilder landen sofort in „${state.status?.vault?.attachments_dir || 'dem Anhangordner'}“.` })),
+      h('h1', { text: t('nav.images') }),
+      h('p', { text: t('images.lead', { folder: state.status?.vault?.attachments_dir || t('images.attachmentFolder') }) })),
     zone,
     h('div', { class: 'row', style: 'margin:16px 0 12px' }, filter),
     grid,
@@ -53,9 +54,9 @@ function card(file) {
       h('img', { src: api.rawUrl(file.path), alt: file.name, loading: 'lazy' }),
       h('span', { text: file.name })),
     h('span', { class: 'asset-card__tools' },
-      h('button', { class: 'icon-btn', title: 'Einbettung kopieren (![[…]])',
+      h('button', { class: 'icon-btn', title: t('images.copyEmbed'),
         onclick: () => copyText(`![[${file.path}]]`) }, icon('copy')),
-      h('button', { class: 'icon-btn', title: 'Mit KI auswerten und als Notiz speichern',
-        onclick: () => askAIWithFile(file.path, 'Werte das angehängte Bild aus und erstelle daraus eine strukturierte Notiz mit eingebettetem Bild.') },
+      h('button', { class: 'icon-btn', title: t('images.aiAnalyse'),
+        onclick: () => askAIWithFile(file.path, t('images.analysePrompt')) },
       icon('chat'))));
 }

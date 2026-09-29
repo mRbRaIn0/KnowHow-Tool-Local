@@ -1,6 +1,7 @@
 // Hybride lokale Wissenssuche mit Datei- und Seitenquellen.
 
 import { api } from '../api.js';
+import { t } from '../i18n.js';
 import { h, icon, toast } from '../util.js';
 import { navigate, vaultReady } from '../store.js';
 
@@ -16,11 +17,11 @@ export async function mount({ route, el }) {
   const query = route.params.q || '';
   const input = h('input', {
     class: 'input', value: query,
-    placeholder: 'Vault oder freigegebene Bibliotheksinhalte durchsuchen …',
+    placeholder: t('knowledge.placeholder'),
   });
   const form = h('form', { class: 'row', style: 'margin-bottom:16px' },
     input,
-    h('button', { class: 'btn btn--primary', type: 'submit' }, icon('search'), 'Suchen'));
+    h('button', { class: 'btn btn--primary', type: 'submit' }, icon('search'), t('knowledge.searchButton')));
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const q = input.value.trim();
@@ -31,14 +32,13 @@ export async function mount({ route, el }) {
   resultsNode = h('div');
   host.append(h('div', { class: 'view' },
     h('div', { class: 'page-head' },
-      h('span', { class: 'label', text: 'Lokaler Wissensindex' }),
-      h('h1', { text: 'Wissen' }),
-      h('p', { text: 'Hybride Suche nach Stichwort und Bedeutung – mit Datei- und PDF-Seitenquelle.' })),
+      h('span', { class: 'label', text: t('knowledge.label') }),
+      h('h1', { text: t('nav.knowledge') }),
+      h('p', { text: t('knowledge.lead') })),
     form, statusNode, resultsNode));
 
   if (!vaultReady()) {
-    statusNode.replaceChildren(h('p', { class: 'field__hint', text: 'Kein Vault gewählt. Freigegebene Bibliotheksinhalte können trotzdem durchsucht werden.' }));
-    if (query) await search(query);
+    statusNode.replaceChildren(h('p', { class: 'field__hint', text: t('knowledge.noVault') }));
     return;
   }
   await renderStatus();
@@ -52,13 +52,13 @@ async function renderStatus() {
     if (ticket !== generation) return;
     statusNode.replaceChildren(
       h('div', { class: 'card__title' },
-        h('span', { class: 'label', text: 'Index' }),
-        h('button', { class: 'btn btn--sm', onclick: rebuild }, icon('knowledge'), 'Neu aufbauen')),
+        h('span', { class: 'label', text: t('knowledge.indexLabel') }),
+        h('button', { class: 'btn btn--sm', onclick: rebuild }, icon('knowledge'), t('knowledge.rebuild'))),
       h('div', { class: 'stat-strip', style: 'margin:0' },
-        stat('Dateien', status.files), stat('Abschnitte', status.chunks),
-        stat('Vektoren', status.embedded)),
+        stat(t('dash.files'), status.files), stat(t('knowledge.sections'), status.chunks),
+        stat(t('knowledge.vectors'), status.embedded)),
       h('p', { class: 'field__hint', style: 'margin:10px 0 0',
-        text: `Embedding-Modell: ${status.model || 'nicht konfiguriert'}` }));
+        text: t('knowledge.embedModel', { model: status.model || t('knowledge.notConfigured') }) }));
   } catch (error) {
     if (ticket !== generation) return;
     statusNode.replaceChildren(h('p', { class: 'field__hint', text: error.message }));
@@ -74,11 +74,11 @@ function stat(label, value) {
 async function rebuild() {
   const ticket = generation;
   statusNode.classList.add('is-loading');
-  toast('Wissensindex wird lokal aufgebaut …');
+  toast(t('knowledge.rebuilding'));
   try {
     const result = await api.reindexKnowledge();
     if (ticket !== generation) return;
-    toast(`${result.files} Dateien · ${result.chunks} Abschnitte indexiert.`, 'ok');
+    toast(t('knowledge.rebuilt', { files: result.files, chunks: result.chunks }), 'ok');
     await renderStatus();
   } catch (error) {
     if (ticket !== generation) return;
@@ -90,28 +90,28 @@ async function rebuild() {
 
 async function search(query) {
   const ticket = generation;
-  resultsNode.replaceChildren(h('p', { class: 'field__hint', text: 'Freigegebenes Wissen wird durchsucht …' }));
+  resultsNode.replaceChildren(h('p', { class: 'field__hint', text: t('knowledge.searching') }));
   try {
     const data = await api.knowledgeSearch(query, 10);
     if (ticket !== generation) return;
     const items = data.results || [];
     if (!items.length) {
       resultsNode.replaceChildren(h('div', { class: 'empty' }, icon('search'),
-        h('h3', { text: 'Keine passende Quelle' }),
-        h('p', { text: 'Versuche einen anderen Begriff oder baue den Index neu auf.' })));
+        h('h3', { text: t('knowledge.noSource') }),
+        h('p', { text: t('knowledge.noSourceText') })));
       return;
     }
     const resultRows = items.map((item) => h('button', {
         class: 'list__item',
         onclick: () => navigate('/files?path=' + encodeURIComponent(item.path)),
       }, icon('note'), h('span', { class: 'list__main' },
-        h('span', { class: 'list__title', text: 'Vault · ' + item.path }),
-        h('span', { class: 'list__sub', text: `${item.page ? `Seite ${item.page} · ` : ''}${item.snippet}` })),
+        h('span', { class: 'list__title', text: `Vault · ${item.path}` }),
+        h('span', { class: 'list__sub', text: `${item.page ? `${t('attach.pageShort', { page: item.page })} · ` : ''}${item.snippet}` })),
       h('span', { class: 'chip', text: `${Math.round(item.score * 100)} %` })));
 
     resultsNode.replaceChildren(
       h('div', { class: 'page-head', style: 'margin-bottom:10px' },
-        h('span', { class: 'label', text: `${items.length} Quellen${data.semantic ? ' · semantisch' : ' · Stichwort'}` })),
+        h('span', { class: 'label', text: t('knowledge.sourcesCount', { n: items.length, mode: data.semantic ? t('knowledge.semantic') : t('knowledge.keyword') }) })),
       h('div', { class: 'list' }, ...resultRows),
     );
   } catch (error) {

@@ -907,3 +907,46 @@ mark { background: var(--accent-quiet); color: var(--accent); border-radius: 2px
 .asset-card__tools { display: flex; gap: 2px; justify-content: flex-end; }
 .asset-card__tools .icon-btn { width: 28px; height: 28px; }
 .asset-card__tools .icon-btn svg { width: 15px; height: 15px; }
+
+/* V1.5: Auswahlfelder mit Beschriftung im Composer (Modell, Suchbereich) */
+.composer__side { align-items: flex-end; gap: 14px; }
+.composer__field { display: grid; gap: 3px; min-width: 0; }
+.composer__field-label {
+  font-family: var(--font-display); font-variation-settings: "wdth" 87.5, "wght" 600;
+  font-size: .625rem; letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
+  padding-left: 4px;
+}
+.composer__scope { width: 200px; }
+.composer__side > .composer__think { align-self: flex-end; }
+.composer__refine { align-self: center; }
+
+/* Hinweis „Kein Eintrag gefunden – KI-Wissen:“ (nur die Oberfläche erzeugt ihn) */
+.msg__hint {
+  display: inline-block; margin: 0 0 6px; padding: 3px 10px;
+  border: 1px solid var(--accent-line); border-radius: 20px;
+  background: var(--accent-quiet); color: var(--accent);
+  font-family: var(--font-mono); font-size: .75rem;
+}
+
+/* Kontextmenü: Markierung des aktuellen Ordners */
+.chat-folder-menu__item.is-checked { color: var(--accent); }
+.chat-folder-menu__item.is-checked::after { content: "✓"; margin-left: auto; font-size: .75rem; }
+
+/* Markdown-Spickzettel (Notizen, rechte Seitenleiste) */
+.cheat__group { margin-bottom: 12px; }
+.cheat__head { display: flex; align-items: center; gap: 4px; }
+.cheat__head .icon-btn { width: 26px; height: 26px; }
+.cheat__head .icon-btn svg { width: 14px; height: 14px; }
+.cheat__code {
+  margin: 4px 0 0; padding: 8px 10px; overflow-x: auto; cursor: copy;
+  background: var(--code-bg); border: 1px solid var(--line-soft); border-radius: var(--r-sm);
+  font: .75rem/1.55 var(--font-mono); color: var(--text-2); white-space: pre;
+}
+.cheat__code:hover { border-color: var(--accent-line); color: var(--text); }
+
+/* Bestätigungsdialoge: die gefährliche Aktion ist dauerhaft erkennbar */
+.modal__foot .btn--danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+html[data-theme="dark"] .modal__foot .btn--danger { color: #250907; }
+.modal__foot .btn--danger:hover { filter: brightness(1.08); color: inherit; }
+html[data-theme="dark"] .modal__foot .btn--danger:hover { color: #250907; }
+html[data-theme="light"] .modal__foot .btn--danger:hover { color: #fff; }

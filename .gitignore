@@ -25,3 +25,6 @@ KnowHow-Tool-*-Windows.zip
 # Isolierte Regressionstests
 .test-selection*/
 .test-memory*/
+
+# Local editor/agent state
+.serena/

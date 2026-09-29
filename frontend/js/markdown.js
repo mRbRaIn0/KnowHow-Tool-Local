@@ -3,6 +3,7 @@
 // werden direkt unterstützt.
 
 import { esc } from './util.js';
+import { t } from './i18n.js';
 
 const PLACEHOLDER = String.fromCharCode(0);
 
@@ -51,7 +52,7 @@ export function renderMarkdown(text, options = {}) {
       }
       index += 1;
       out.push(
-        `<pre><button class="copy-code" type="button">Kopieren</button>` +
+        `<pre><button class="copy-code" type="button">${esc(t('common.copy'))}</button>` +
         `<code${language ? ` class="lang-${esc(language)}"` : ''}>${esc(buffer.join('\n'))}</code></pre>`,
       );
       continue;
@@ -216,7 +217,7 @@ function inline(raw, options) {
     (_, alt, src) => keep(`<img src="${esc(resolveSrc(src, options))}" alt="${esc(alt)}" loading="lazy">`));
   text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, href) => {
     const safe = safeHref(href, options);
-    if (!safe) return keep(`<span title="Externer Link im Offline-Modus blockiert">${label}</span>`);
+    if (!safe) return keep(`<span title="${esc(t('md.externalBlocked'))}">${label}</span>`);
     const external = /^https?:/i.test(safe);
     return keep(`<a href="${esc(safe)}"${external ? ' target="_blank" rel="noreferrer noopener"' : ''}>${label}</a>`);
   });
@@ -239,7 +240,7 @@ function renderEmbed(target, alias, options) {
   const resolved = options.resolveLink?.(target) ?? null;
   if (IMAGE_RE.test(target)) {
     if (!resolved) {
-      return `<span class="attach-file" title="Datei nicht im Vault gefunden">${esc(target)}</span>`;
+      return `<span class="attach-file" title="${esc(t('md.fileMissing'))}">${esc(target)}</span>`;
     }
     return `<figure class="embed"><img src="/api/files/raw?path=${encodeURIComponent(resolved)}" ` +
       `alt="${esc(alias || target)}" loading="lazy">` +

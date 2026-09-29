@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -82,14 +82,22 @@ async def update_profile(profile_id: str, request: ProfilePatch) -> Dict[str, An
 
 
 class UIPatch(BaseModel):
-    theme: str
+    theme: Optional[str] = None
+    language: Optional[str] = None
 
 
 @router.patch("/ui")
 async def update_ui(request: UIPatch) -> Dict[str, Any]:
-    if request.theme not in ("light", "dark", "system"):
-        raise HTTPException(400, {"message": "Unbekanntes Thema.", "kind": "invalid"})
-    return store.update_ui({"theme": request.theme}).model_dump()
+    patch: Dict[str, Any] = {}
+    if request.theme is not None:
+        if request.theme not in ("light", "dark", "system"):
+            raise HTTPException(400, {"message": "Unbekanntes Thema.", "kind": "invalid"})
+        patch["theme"] = request.theme
+    if request.language is not None:
+        if request.language not in ("de", "en"):
+            raise HTTPException(400, {"message": "Unbekannte Sprache.", "kind": "invalid"})
+        patch["language"] = request.language
+    return store.update_ui(patch).model_dump()
 
 
 class ProfileCreate(BaseModel):

@@ -1,224 +1,188 @@
-# KnowHow Tool · V1.4
+# KnowHow Tool · V1.5
 
-**Direkte Dateiaktionen:** Fertigen Text mit `Füge diesen Text zu SPS/delete2.md hinzu:`
-und anschließendem Inhalt ohne Modellaufruf ergänzen – auch bei leerer Notiz.
-Exakte Pfade haben Vorrang; mehrere Treffer lösen eine Ordnerfrage aus.
-[Befehle, Performance-Diagnose und Grenzen](docs/DIRECT-ACTIONS.md).
+KnowHow Tool is a local knowledge assistant for Windows by **mRbRaIn0**. Keep
+notes, images, and documents in your own knowledge folder, then ask questions
+about them with source references. AI runs through Ollama on your computer.
+Notes remain ordinary Markdown files that you can also edit in Obsidian.
 
-Lokale Wissens-KI für Windows von **mRbRaIn0**. Sammle Informationen, Bilder und
-Dokumente in einem eigenen Wissensordner und frage ihre Inhalte mit Quellen ab.
-Die KI läuft über Ollama auf deinem Rechner; Notizen bleiben normale
-Markdown-Dateien, die du auch mit Obsidian bearbeiten kannst.
+[Windows release](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
+· [Deutsche README](README.de.md) · [AI behavior (German)](KI.md)
+· [V1.5 release report (German)](docs/RELEASE-V1.5.md)
 
-[Windows-Release](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
-· [KI-Verhalten](KI.md) · [Release V1.4](docs/RELEASE-V1.4.md)
+## What's new in V1.5
 
-## Neu in V1.4
+- **Search scope:** Choose a Vault folder beside the model selector. All folders
+  are selected by default; subfolders are included. A narrower scope reduces
+  search work and irrelevant context.
+- **No matching entry:** When a knowledge question has no local match, the UI
+  shows the notice once and removes a duplicate if the model writes one.
+- **Variants toggle:** Turn on three answer variants when you need them. It is
+  off by default for simple questions.
+- **Chat context menu:** Right-click a chat to move it to a folder, archive it,
+  or delete it. Deletion requires confirmation.
+- **Markdown cheat sheet:** View syntax in the Notes sidebar, copy a block, or
+  insert it into quick capture at the cursor position.
+- **German and English:** Choose the interface language at the bottom of
+  Settings. It also controls the AI response language.
+- Missing model details are hidden instead of being displayed as `null`.
 
-- **Schnellere, ehrlichere Antworten in „Wissen fragen“:** Die Suche ignoriert
-  Füllwörter und schickt nur wirklich passende Auszüge an die KI. Ohne Treffer
-  beginnt die Antwort mit `Kein Eintrag gefunden – KI-Wissen:`; mit Treffer
-  stehen Links auf die verwendeten `.md`-Dateien darunter. Kein Vault-Abgleich
-  vor jeder Frage, kürzerer Verlauf, Antwortlänge nach Frage („in 3 Sätzen“).
-- Der Arbeitschat wiederholt keine identischen Such- und Leseaufrufe mehr.
-- **Varianten-Modus:** Schalter „Varianten“ im Arbeitschat. Größere Notizaufträge
-  liefern drei Fassungen – Strikt (nur Vorhandenes), Strukturiert (besser gegliedert),
-  Erweitert (mit Ergänzungen und Verbesserungsvorschlägen). Wählen, dann **Übernehmen**
-  oder **Ändern** mit eigenem Wunsch. Erst die Übernahme schreibt, rücknehmbar.
-- **Notizen, Bilder, Dateien:** Notizen direkt erfassen (Strg+Enter), Bilder per
-  Ziehen oder Strg+V ablegen, Dateien aus dem Explorer auf einen Ordner ziehen – ohne
-  Rückfrage, gleiche Namen werden nummeriert. „Mit KI überarbeiten“ bzw. „Mit KI
-  auswerten“ öffnet einen vorbereiteten Arbeitschat. Obsidian bleibt die Hauptansicht.
-- **Saubere Struktur:** Fakten als Stichpunkte, Vergleiche als Tabelle, Abläufe als
-  nummerierte Schritte, Begriffe als Definition, passende interne Links.
-- Häufige Obsidian-Syntax ist fest im Code; erweiterte Syntax steht in der bei Bedarf gelesenen Vault-Datei `Obsidian_Syntax.md`.
-- Antworten lassen sich ohne Dialog als nummerierte Notizen speichern. Uploads landen sofort im Vault und behalten eine Chat-Kopie für die Analyse.
-- Navigation und Einstellungen sind kompakter. Seltene Optionen stehen unter „Erweitert“.
+Included note templates and existing Vault content keep their own language.
+Direct file commands and some free-form action recognition still use German;
+the prepared actions in the interface work in both languages.
 
-## Neu in V1.3
+## Earlier updates
 
-- Reine Ablagebefehle wie „Datei schnell ablegen“ oder „Lege die Dateien in
-  "Projekt/Dateien" ab“ werden ohne Modellaufruf und ohne Inhaltsanalyse ausgeführt.
-  Ohne Ziel wird der konfigurierte Anhangordner verwendet. Aufträge mit
-  Zusammenfassung, Notiz oder inhaltlicher Einsortierung laufen weiter über die KI.
-- Gleiche Dateinamen werden automatisch nummeriert: `image.png`, `image1.png`,
-  `image2.png`. Das gilt auch für Uploads und neu erstellte Notizen.
-- Kürzere Arbeitsanweisungen, kompakte frühere KI-Antworten und ein
-  gebündeltes Aktualisieren der Vault-Übersicht vermeiden unnötige Arbeit.
-- Die KI erhält eine feste Markdown-/Obsidian-Syntaxreferenz aus dem Code.
-  Eigene Gestaltungsregeln gehören weiterhin in `00 Inhalt.md` im Vault.
-  Community-Plugins werden nicht vorausgesetzt; die App-Vorschau unterstützt
-  nicht sämtliche Darstellungen von Obsidian.
-- **Gezielter Kontext:** Genannte Dateien und Ordner begrenzen Suche und
-  Lesezugriffe. Pfade mit Leerzeichen in Anführungszeichen oder `[[WikiLinks]]`
-  nennen. Ohne Ziel lädt der Arbeitschat keinen allgemeinen Vault-Kontext.
-  „Im gesamten Vault“ erweitert den Umfang ausdrücklich. Wissensfragen ohne
-  Pfadangabe suchen weiterhin im freigegebenen Wissen.
-- **Informationen erhalten:** Alle eingegebenen Sachinformationen bleiben im
-  Arbeitskontext. Die KI soll sie sinnvoll gliedern und ergänzen; unbekannte
-  Fakten bleiben als offen markiert. Bei zu großem Kontext stoppt sie mit einem
-  Hinweis, statt alte Nutzerangaben still zu entfernen.
-- **Schreibvorschau:** Notizinhalt, Diff, Quellenlinks und Zielpfad vor dem
-  Speichern prüfen. Übernehmen, Anpassen oder den Auftrag abbrechen.
-- **Rückgängig:** Der letzte Vault-Auftrag lässt sich in der Kontextspalte
-  zurücknehmen, einschließlich Notizinhalten, verschobenen Dateien und Links.
-  Neuere externe Änderungen verhindern eine überschreibende Rücknahme.
-- **Bildwissen speichern:** OCR und Bildbeschreibungen werden mit Original-Link
-  und erkannten Seitenangaben unter `91 Quellenwissen` suchbar abgelegt.
-  Vorschau und Quellenablage lassen sich in den Einstellungen und pro Nachricht
-  ausschalten. „Nur ansehen“ legt keine Bildquelle im Vault ab.
-- **Optionales Vision-Modell:** In den KI-Einstellungen kann ein installiertes
-  `qwen3-vl:8b` aktiviert werden. Es bearbeitet den gesamten Bild-/Scanblock,
-  wird entladen und übergibt einmal an das Chatmodell. Spätere Bildwerkzeuge
-  verwenden das bildfähige Chatmodell. Standardmäßig bleibt diese Option aus.
+### V1.4
 
-## Zwei Bereiche für dein Wissen
+- Faster knowledge answers use relevant excerpts and link to source `.md` files.
+  Answers without a local match are identified as general AI knowledge.
+- The working chat avoids repeated identical search and read calls.
+- Larger note tasks can offer Strict, Structured, and Expanded variants. Choose
+  one, then accept or request changes. Only acceptance writes to the Vault,
+  and the action can be undone.
+- Capture notes (Ctrl+Enter), paste or drop images, and drop files onto a folder.
+  Duplicate names are numbered. AI actions open a prepared working chat;
+  you decide when to send it.
+- Notes can use bullet points for facts, tables for comparisons, numbered steps
+  for procedures, definitions for terms, and suitable internal links.
+- Save answers as numbered notes. Uploads go straight to the Vault while a
+  chat copy remains available for analysis.
 
-| Bereich | Aufgabe |
+### V1.3
+
+- Explicit storage commands can copy attachments without a model call or
+  content analysis. Duplicate file and note names are numbered automatically.
+- Named files and folders restrict search and reading. An explicit whole-Vault
+  request can widen the scope.
+- A write preview shows the note, diff, source links, and destination before
+  saving. The last Vault task can be undone unless newer external changes
+  conflict.
+- Image OCR and descriptions can be stored as searchable source notes under
+  `91 Quellenwissen`. An optional separate vision model can be enabled.
+
+## Two ways to work with your knowledge
+
+| Area | Purpose |
 |---|---|
-| **Wissen erweitern** | Informationen eingeben, Dateien anhängen, Bilder auswerten und Notizen anlegen oder ergänzen. Originaldateien können passend im Wissensordner abgelegt und verlinkt werden. |
-| **Wissen fragen** | Fragen zur gespeicherten Wissensbasis stellen. Relevante Auszüge gelangen mit Dateiquellen in den Modellkontext. Dieser Bereich hat keine Schreibwerkzeuge. |
+| **Wissen erweitern** (Expand knowledge) | Add information, attach files, analyze images, and create or extend notes. Original files can be stored and linked in the Vault. |
+| **Wissen fragen** (Ask knowledge) | Ask questions about saved knowledge. Relevant excerpts and source files are supplied to the model. This area has no writing tools. |
 
-Weitere Funktionen:
+The app also includes a file and note browser with a Markdown editor and
+preview, Obsidian WikiLinks, screenshot and image import, PDF/DOCX/text/code
+extraction, scanned-page analysis with a local vision model, hybrid SQLite
+full-text and Ollama embedding search, separate profiles, chat history,
+templates, local ZIP backups, light and dark themes, and a WebView2 window.
 
-- Datei- und Notizbrowser mit Markdown-Editor, Vorschau und Obsidian-WikiLinks.
-- Bilder und Screenshots per Dateiauswahl, Drag-and-drop oder Zwischenablage.
-- Textauswertung für PDFs, DOCX, Markdown und unterstützte Text-/Codedateien.
-- Bildanalyse und Auswertung gescannter PDF-Seiten über ein lokales Vision-Modell.
-- Hybride Suche aus SQLite-Volltextsuche und lokalen Ollama-Embeddings.
-- Getrennte Profile, Chatverläufe, Vorlagen und lokale ZIP-Backups.
-- Helles/dunkles Design und eigenes App-Fenster über WebView2.
+**Direct file action:** Append text without a model call by writing
+`Füge diesen Text zu SPS/delete2.md hinzu:` followed by the text, even when
+the note is empty. Exact paths take priority; multiple matches trigger a
+folder question. This command currently requires German wording.
+[Commands and limitations (German)](docs/DIRECT-ACTIONS.md).
 
-## Schnellstart unter Windows
+## Quick start on Windows
 
-1. **Ollama einrichten.** Installiere [Ollama für Windows](https://ollama.com/download/windows)
-   und lade mindestens das Standardmodell plus das Suchmodell. Stand 11. September 2026:
+1. **Set up Ollama.** Install [Ollama for Windows](https://ollama.com/download/windows)
+   and download at least a chat model and the search model. As documented on
+   September 11, 2026:
 
-   | Modell | Rolle |
+   | Model | Role |
    |---|---|
-   | **`qwen3.5:9b`** (Standard) | Allrounder für diese App: Deutsch, Thinking, Werkzeuge, Bilder und gescannte Seiten. Braucht etwa 8 GB Grafik- oder Arbeitsspeicher. Thinking macht Antworten gründlicher, aber langsamer. Kein Audio, keine Cloud. |
-   | **`qwen3.5:4b`** | Kleiner und schneller. Thinking möglich. Schwächer bei langen Notizen, schwierigen Scans und kniffligen Werkzeugaufträgen. Gut, wenn der 9B-Stand zu langsam ist. |
-   | **`qwen3-vl:8b`** | Besonders für Fotos, Screenshots und gescannte PDFs. Kein voller Ersatz für den 9B-Allrounder: Text, Thinking und Vault-Werkzeuge sind oft schwächer. |
-   | **`nomic-embed-text`** (Suche) | Nur für die lokale Wissenssuche, kein Chat. Ohne dieses Modell bleiben Stichwortsuche und Dateibrowser nutzbar, die Bedeutungs-Suche fehlt. |
+   | **`qwen3.5:9b`** (default) | General-purpose model for German, reasoning, tools, images, and scanned pages. Requires roughly 8 GB of GPU or system memory. Thinking gives more thorough but slower answers. |
+   | **`qwen3.5:4b`** | Smaller and faster, with weaker performance on long notes, difficult scans, and complex tool tasks. |
+   | **`qwen3-vl:8b`** | Especially useful for photos, screenshots, and scanned PDFs. It is not a full replacement for the 9B model. |
+   | **`nomic-embed-text`** (search) | Local semantic search only, not chat. Keyword search and the file browser still work without it. |
 
    ```powershell
    ollama pull qwen3.5:9b
    ollama pull nomic-embed-text
    ```
 
-   Optional bei wenig Speicher bzw. viel Bildarbeit:
+   Optional models for limited memory or more image work:
 
    ```powershell
    ollama pull qwen3.5:4b
    ollama pull qwen3-vl:8b
    ```
 
-   Neue Profile starten mit Thinking aus für schnellere Antworten. Du kannst es
-   neben der Eingabe einschalten; bestehende Einstellungen bleiben erhalten. Die Einrichtung braucht Internet; der spätere Betrieb kann
-   offline erfolgen.
+   New profiles start with Thinking off for faster answers. You can enable it
+   beside the input. Setup needs internet; normal use can be offline.
 
-2. **Release entpacken.** Lade `KnowHow-Tool-v1.4-Windows.zip` aus den
+2. **Extract the release.** Download `KnowHow-Tool-v1.5-Windows.zip` from
    [Releases](https://github.com/mRbRaIn0/KnowHow-Tool-Local/releases/latest)
-   und entpacke es in einen beschreibbaren lokalen Ordner, beispielsweise
-   `%LOCALAPPDATA%/KnowHow-Tool`. Chats liegen im Ordner `data` **neben** der EXE.
-   Bei einem Update denselben Ordner verwenden und `data` behalten — nicht in einen
-   neuen leeren Ordner entpacken.
-3. **App starten.** Öffne `KnowHow Tool.exe`. Python wird für die EXE nicht
-   benötigt. Ollama und die Modelle sind separat erforderlich.
-4. **Profil und Wissensordner wählen.** Wähle in den Einstellungen einen eigenen
-   lokalen Ordner oder einen vorhandenen Obsidian-Vault. Für getrennte Daten
-   kannst du ein eigenes Unternehmensprofil anlegen.
-5. **Wissen hinzufügen und abfragen.** Nutze zunächst **Wissen erweitern** und
-   stelle anschließend unter **Wissen fragen** deine Frage.
+   into a writable local folder, such as `%LOCALAPPDATA%/KnowHow-Tool`.
+   Chat data lives in `data` **beside** the EXE. Keep that folder when updating.
+3. **Launch the app.** Open `KnowHow Tool.exe`. The EXE does not need Python.
+   Ollama and its models are separate requirements.
+4. **Choose a profile and Vault.** In Settings, select a local folder or an
+   existing Obsidian Vault. You can create a separate work profile.
+5. **Add and ask.** Start in **Wissen erweitern**, then ask a question in
+   **Wissen fragen**.
 
-Beispiel:
+Image and scan findings must be saved as text notes before they become
+searchable knowledge.
 
-> **Wissen erweitern:** „Erstelle aus diesem Screenshot und der angehängten
-> Anleitung eine Wissensnotiz. Übernimm die Gerätekennung und die Wartungsschritte
-> und verlinke beide Originaldateien.“
->
-> **Wissen fragen:** „Welche Wartungsschritte gelten für dieses Gerät? Nenne die
-> Quellen aus meinem Wissen.“
+## Requirements and limitations
 
-Bild- und Scanerkenntnisse müssen als Textnotiz gespeichert werden, damit sie
-später in der Wissenssuche verfügbar sind. Vor einer Wissensfrage gleicht die
-App neue und geänderte Textdokumente mit dem Index ab.
+- Windows 10/11, Ollama, and enough memory for the selected model. Speed depends
+  especially on the model, GPU, and context size.
+- WebView2 for the embedded window. If unavailable, the app attempts a local
+  browser in app mode.
+- The EXE is unsigned. Managed devices must follow their IT policies.
+- Up to 50 attachments per message, 40 MB per file, and 400 MB per chat.
+- Missing embeddings do not stop keyword search. Image analysis needs a model
+  with vision support.
+- AI answers can be wrong. Check important details against original sources.
 
-## Voraussetzungen und Grenzen
+## Local data and updates
 
-- Windows 10/11, Ollama und ausreichend Arbeitsspeicher für das ausgewählte Modell.
-  Die Geschwindigkeit hängt insbesondere von Modell, GPU und Kontextgröße ab.
-- WebView2 für das eingebettete Fenster. Bei fehlendem WebView2 versucht die App
-  einen lokalen Browser im App-Modus zu verwenden.
-- Die EXE ist nicht digital signiert. Auf verwalteten Geräten muss ihre
-  Ausführung den geltenden IT-Richtlinien entsprechen.
-- Bis zu 50 Anhänge je Eingabe, 40 MB je Datei und 400 MB je Chat.
-  PDF-Seiten werden einzeln ausgewertet und zwischengespeichert.
-- Fehlende Embeddings verhindern die Stichwortsuche nicht. Bildauswertung
-  benötigt ein Modell mit Vision-Unterstützung.
-- KI-Antworten können Fehler enthalten. Prüfe wichtige Angaben anhand der
-  Originalquellen. Allgemeines Modellwissen soll als solches gekennzeichnet sein.
+A portable EXE creates `data/` beside itself for configuration, per-profile
+databases, uploads, and local logs. A build in this project's `dist/` folder
+uses the project's existing `data/`. Your Vault holds notes and original files
+separately. The app creates `00 Inhalt.md` as an orientation page while
+preserving your rules. Obsidian is optional.
 
-## Lokal gespeicherte Daten
+Use **Settings → Data → Backup** for a local copy of the Vault, profile
+configuration, and database. The app does not automatically sync devices.
 
-Eine portable EXE legt ihren `data/`-Ordner neben sich an. Dort liegen
-Konfiguration, profilbezogene Datenbanken, Uploads und lokale Protokolle.
-Ein Build im `dist/`-Ordner dieses Quellprojekts verwendet dessen vorhandenen
-`data/`-Ordner. Der gewählte Wissensordner enthält die eigentlichen Notizen und
-abgelegten Originaldateien.
+To update without losing chats:
 
-Die App erstellt im ausgewählten Wissensordner eine `00 Inhalt.md` als
-Orientierung und Inhaltsübersicht. Bestehende eigene Regeln bleiben erhalten.
-Obsidian ist optional; es wird kein proprietäres Notizformat verwendet.
+1. Close the running app completely.
+2. Download the new release ZIP.
+3. Extract it **into the same folder** as the existing `KnowHow Tool.exe`,
+   replacing files while keeping `data/`.
+4. Start the EXE again. The chat history and Vault path should still be there.
 
-Unter **Einstellungen → Daten → Backup** kannst du Vault, Profilkonfiguration
-und Datenbank lokal sichern. Die App übernimmt keine automatische
-Synchronisation zwischen Geräten.
+If you extracted into a new folder and the history appears empty, copy the old
+`data/` folder beside the new EXE and restart. Extract the ZIP before running
+the app; do not launch it from Windows ZIP Explorer.
 
-## Aktualisieren (Chats behalten)
+## Privacy
 
-Chats, Profile und Einstellungen überleben ein Update nur, wenn der Ordner
-`data` am gleichen Ort bleibt. Der Vault (Notizen) liegt separat im gewählten
-Wissensordner und bleibt davon unberührt.
+- The backend listens only on `127.0.0.1`, using a changing port and session key.
+- Host and origin checks and a restrictive Content Security Policy are enabled.
+- Offline mode is on by default; Ollama connections remain local.
+- No telemetry, analytics, or externally loaded CDN resources.
+- Models are downloaded only after you explicitly start setup.
+- Vault tools check paths and have no shell access.
 
-1. Die laufende App vollständig beenden. Eine alte Instanz darf nicht weiterlaufen.
-2. Das neue ZIP aus den Releases herunterladen.
-3. Den Inhalt **in denselben Ordner** entpacken, in dem bereits `KnowHow Tool.exe`
-   liegt, und vorhandene Dateien ersetzen. Den Ordner `data` nicht löschen.
-4. `KnowHow Tool.exe` starten. Verlauf und Vault-Pfad sind dieselben wie zuvor.
+Release packages and source code do not contain personal profiles, chats,
+uploads, Vaults, or models.
 
-Nicht in einen neuen leeren Ordner entpacken — dort entsteht ein leerer
-`data`-Ordner und der Verlauf wirkt verschwunden. In diesem Fall den alten
-`data`-Ordner neben die neue EXE kopieren und neu starten. Unter Windows die
-App nicht aus dem ZIP-Explorer heraus starten, sondern zuerst entpacken.
+## Run from source
 
-## Datenschutz
-
-- Backend nur auf `127.0.0.1`, mit wechselndem Port und Sitzungsschlüssel.
-- Prüfung von Host und Ursprung sowie eine restriktive Content-Security-Policy.
-- Offline-Modus standardmäßig aktiv; Ollama-Verbindungen bleiben lokal.
-- Keine Telemetrie, Analytics oder extern geladenen CDN-Ressourcen.
-- Modell-Downloads erfolgen nur nach einer ausdrücklich gestarteten Einrichtung.
-- Vault-Werkzeuge prüfen Dateipfade und besitzen keinen Shell-Zugriff.
-
-Release-Pakete und Quellcode enthalten keine persönlichen Profile, Chats,
-Uploads, Wissensordner oder Modelle.
-
-## Aus dem Quellcode starten
-
-Für die Entwicklung benötigst du Python; V1.3 wurde mit Python 3.12 geprüft.
-`start.bat` richtet die lokale `.venv` mit den festgelegten Abhängigkeiten ein
-und startet die Anwendung. Alternativ nach der Einrichtung:
+Development requires Python; V1.3 was checked with Python 3.12. `start.bat`
+creates a local `.venv` with pinned dependencies and starts the app. After
+setup, you can also run:
 
 ```powershell
 .\.venv\Scripts\python.exe run.py
 ```
 
-Die Konfiguration wird beim ersten Start angelegt. `config.example.json`
-dokumentiert die Einstellungen. `KI.md` beschreibt Werkzeuge, Modustrennung,
-Quellenbehandlung und Schreibkontrollen.
+Configuration is created on first launch. `config.example.json` documents the
+settings. [KI.md](KI.md) describes tools, chat modes, sources, and write
+controls in German.
 
-## Prüfen und EXE bauen
+## Check and build the EXE
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pytest
@@ -227,21 +191,15 @@ Quellenbehandlung und Schreibkontrollen.
 powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
 ```
 
-Der Build erzeugt `dist/KnowHow Tool.exe`, das Release-ZIP und
-`dist/SHA256SUMS.txt`. Lizenzhinweise werden aus der installierten Umgebung
-zusammengestellt und mitgeliefert. Für reproduzierbare Ergebnisse eine frische
-Umgebung mit `requirements.txt` und `requirements-build.txt` verwenden.
+The build creates `dist/KnowHow Tool.exe`, the release ZIP, and
+`dist/SHA256SUMS.txt`. It bundles license notices from the installed
+environment. For reproducible builds, start with a clean environment using
+`requirements.txt` and `requirements-build.txt`.
 
-V1.4: 208 automatisierte Python-Tests bestanden. Zusätzliche Build- und
-Startprüfungen stehen im Release-Bericht.
-Details und Grenzen stehen in den [Release-Notizen](docs/RELEASE-V1.4.md).
+V1.5 passed 241 automated Python tests. Additional build and launch checks
+are in the [release report](docs/RELEASE-V1.5.md).
 
-Die vorherige V1.1 wurde mit automatisierten Tests, einem echten lokalen Bild-/DOCX-Workflow
-und einem Starttest der portablen EXE geprüft. Umfang und wiederholbare
-Abnahmeskripte stehen im [Prüfbericht](docs/RELEASE-V1.1.md).
+## License
 
-## Lizenz
-
-Copyright © 2026 mRbRaIn0. Siehe [LICENSE](LICENSE).
-Drittanbieter-Komponenten behalten ihre eigenen Lizenzen:
-[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+Copyright © 2026 mRbRaIn0. See [LICENSE](LICENSE). Third-party components
+retain their own licenses; see [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).

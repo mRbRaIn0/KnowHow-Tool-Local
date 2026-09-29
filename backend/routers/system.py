@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from ..config import APP_ROOT, DATA_DIR, store
 from ..deps import current_db, current_ollama, current_profile
+from ..i18n import bt
 from ..ollama_client import OllamaError
 from ..vault import VaultError, require_root, vault_stats
 
@@ -144,12 +145,12 @@ async def start_ollama() -> Dict[str, Any]:
     profile = current_profile()
     client = current_ollama(profile)
     if (await client.health()).get("online"):
-        return {"started": False, "online": True, "message": "Ollama läuft bereits."}
+        return {"started": False, "online": True, "message": bt("ollama.running")}
 
     executable = _find_ollama()
     if not executable:
         raise HTTPException(404, {
-            "message": "ollama.exe wurde nicht gefunden. Bitte Ollama manuell starten.",
+            "message": bt("ollama.notFound"),
             "kind": "not_found"})
 
     try:
@@ -162,9 +163,9 @@ async def start_ollama() -> Dict[str, Any]:
     for _ in range(15):  # bis zu ~7,5 s auf den Dienst warten
         await asyncio.sleep(0.5)
         if (await client.health()).get("online"):
-            return {"started": True, "online": True, "message": "Ollama wurde gestartet."}
+            return {"started": True, "online": True, "message": bt("ollama.started")}
     return {"started": True, "online": False,
-            "message": "Ollama wurde gestartet, antwortet aber noch nicht. Bitte kurz warten."}
+            "message": bt("ollama.startedSilent")}
 
 
 def _find_ollama() -> Optional[str]:

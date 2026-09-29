@@ -39,11 +39,11 @@ def run():
                     break
                 except httpx.ConnectError:
                     time.sleep(.2)
-            assert health.json()["version"] == "1.4"
+            assert health.json()["version"] == "1.5"
             assert client.get("/api/settings").status_code == 403
             client.cookies.set("lka_sitzung", runtime["token"])
             page = client.get("/").text
-            assert "Version 1.4" in page
+            assert "Version 1.5" in page
             settings_module = client.get("/assets/js/views/settings.js")
             assert settings_module.status_code == 200
             subprocess.run(["node", "--input-type=module", "--check"],
@@ -135,7 +135,7 @@ def run():
             assert client.post("/api/files/write", headers={"Origin": "https://evil.example"},
                                json={"path": "bad.md", "content": "bad"}).status_code == 403
         (folder / "report.json").write_text(json.dumps({
-            "ok": True, "version": "1.4", "portable": True,
+            "ok": True, "version": "1.5", "portable": True,
             "two_direct_upload_and_archive_seconds": round(direct_seconds, 3),
             "exact_append_seconds": round(exact_append_seconds, 3),
             "checks": ["self-test", "startup", "session", "host", "origin", "frontend",

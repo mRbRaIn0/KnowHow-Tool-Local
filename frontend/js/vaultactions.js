@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { t } from './i18n.js';
 import { h, toast } from './util.js';
 import { refreshFileIndex } from './store.js';
 
@@ -9,34 +10,34 @@ export function writePreview(draft, chatId, resolved = () => {}) {
   const editor = h('textarea', { class: 'textarea write-preview__editor', id: `${prefix}-content`,
     rows: 14, hidden: true }, draft.after);
   const diff = h('pre', { class: 'write-preview__diff', tabindex: '0',
-    'aria-label': 'Änderungen: Minus entfernt, Plus hinzugefügt' });
-  for (const line of (draft.diff || '(Keine Textänderung)').split('\n')) {
+    'aria-label': t('preview.diffLabel') });
+  for (const line of (draft.diff || t('preview.noChange')).split('\n')) {
     diff.append(h('span', { class: line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-remove' : '',
       text: line + '\n' }));
   }
-  const old = h('details', {}, h('summary', { text: 'Bisheriger vollständiger Inhalt' }),
-    h('pre', { class: 'write-preview__diff', text: draft.before || '(Neue Notiz)' }));
-  const sources = h('details', {}, h('summary', { text: `Quellenlinks (${draft.sources.length})` }),
+  const old = h('details', {}, h('summary', { text: t('preview.oldContent') }),
+    h('pre', { class: 'write-preview__diff', text: draft.before || t('preview.newNote') }));
+  const sources = h('details', {}, h('summary', { text: t('preview.sourceLinks', { n: draft.sources.length }) }),
     h('ul', {}, ...draft.sources.map(text => h('li', { text }))));
   const status = h('p', { class: 'field__hint', role: 'status', 'aria-live': 'polite' });
   const card = h('section', { class: 'card write-preview', 'aria-labelledby': `${prefix}-title` },
-    h('h3', { id: `${prefix}-title`, text: 'Schreibvorschau · Alt → Neu' }),
-    h('label', { class: 'label', for: `${prefix}-path`, text: 'Zielpfad im Vault' }), path,
+    h('h3', { id: `${prefix}-title`, text: t('preview.title') }),
+    h('label', { class: 'label', for: `${prefix}-path`, text: t('preview.targetPath') }), path,
     diff, old, sources,
-    h('label', { class: 'label', for: `${prefix}-content`, text: 'Neuer Inhalt · nach „Anpassen“ editierbar' }), editor,
+    h('label', { class: 'label', for: `${prefix}-content`, text: t('preview.newContent') }), editor,
     status);
   let submitting = false;
   const decide = async (accept) => {
     if (submitting) return;
     submitting = true;
     buttons.forEach(button => { button.disabled = true; });
-    status.textContent = accept ? 'Wird übernommen …' : 'Auftrag wird abgebrochen …';
+    status.textContent = accept ? t('preview.applying') : t('preview.cancelling');
     try {
       await api.post(`/api/chats/${chatId}/preview/${draft.id}`, {
         accept, path: path.value, content: editor.value,
       });
       resolved();
-      card.replaceChildren(h('p', { role: 'status', text: accept ? 'Vorschau übernommen.' : 'Vorschau abgebrochen.' }));
+      card.replaceChildren(h('p', { role: 'status', text: accept ? t('preview.applied') : t('preview.cancelled') }));
     } catch (error) {
       status.textContent = error.message;
       submitting = false;
@@ -44,15 +45,15 @@ export function writePreview(draft, chatId, resolved = () => {}) {
     }
   };
   const buttons = [
-    h('button', { class: 'btn', type: 'button', onclick: () => decide(false) }, 'Abbrechen'),
+    h('button', { class: 'btn', type: 'button', onclick: () => decide(false) }, t('common.cancel')),
     h('button', { class: 'btn', type: 'button', onclick: () => {
       editor.hidden = false;
       diff.hidden = true;
       path.readOnly = draft.path_locked || !draft.create;
       editor.focus();
-      status.textContent = 'Inhalt bearbeiten und anschließend übernehmen. Bestehende Notizen behalten ihren Zielpfad.';
-    } }, 'Anpassen'),
-    h('button', { class: 'btn btn--primary', type: 'button', onclick: () => decide(true) }, 'Übernehmen'),
+      status.textContent = t('preview.editHint');
+    } }, t('preview.adjust')),
+    h('button', { class: 'btn btn--primary', type: 'button', onclick: () => decide(true) }, t('variants.apply')),
   ];
   card.append(h('div', { class: 'row row--wrap write-preview__actions' }, ...buttons));
   return card;
@@ -60,21 +61,21 @@ export function writePreview(draft, chatId, resolved = () => {}) {
 
 export function undoButton() {
   const button = h('button', { class: 'btn btn--sm', type: 'button', disabled: true },
-    'Letzten Vault-Auftrag rückgängig');
-  const hint = h('p', { class: 'field__hint', role: 'status', text: 'Rücknahme wird geprüft …' });
+    t('undo.button'));
+  const hint = h('p', { class: 'field__hint', role: 'status', text: t('undo.checking') });
   const wrapper = h('div', {}, button, hint);
   api.get('/api/chats/vault/last-action').then(result => {
     button.disabled = !result.available || result.busy;
-    hint.textContent = result.busy ? 'Während eines Auftrags nicht verfügbar.'
-      : result.available ? `${result.paths.length} betroffene Dateien. Neuere Änderungen werden geschützt.`
-        : 'Noch kein Vault-Auftrag zum Rückgängigmachen.';
+    hint.textContent = result.busy ? t('undo.busy')
+      : result.available ? t('undo.available', { n: result.paths.length })
+        : t('undo.none');
   }).catch(error => { hint.textContent = error.message; });
   button.addEventListener('click', async () => {
     button.disabled = true;
-    hint.textContent = 'Wird rückgängig gemacht …';
+    hint.textContent = t('undo.running');
     try {
       const result = await api.post('/api/chats/vault/undo', {});
-      hint.textContent = result.undone ? `${result.paths.length} Dateien zurückgesetzt.` : 'Keine Änderung verfügbar.';
+      hint.textContent = result.undone ? t('undo.done', { n: result.paths.length }) : t('undo.nothing');
       toast(hint.textContent);
       await refreshFileIndex();
     } catch (error) {

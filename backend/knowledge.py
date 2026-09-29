@@ -141,6 +141,10 @@ where which who why with you your explain
 """.split())
 
 
+# Von der App gepflegte Hilfsdateien: für Wissensfragen keine Quellen.
+ADMIN_FILES = frozenset({"00 inhalt.md", "obsidian_syntax.md"})
+
+
 def query_terms(query: str) -> List[str]:
     """Nur bedeutungstragende Suchwörter: keine Füllwörter, keine Einzelziffern.
 
@@ -181,6 +185,8 @@ def relevant_results(query: str, results: List[Dict[str, Any]],
     needed = 1.0 if len(terms) == 1 else 0.5
     kept = []
     for item in results:
+        if item.get("path", "").replace("\\", "/").casefold() in ADMIN_FILES:
+            continue  # Vault-Index und Syntaxreferenz nennen fast jede Notiz, sind aber keine Quelle
         text = (item.get("path", "") + "\n" + item.get("content", "")).casefold()
         coverage = sum(1 for term in terms if _covers(term, text)) / len(terms)
         distance = item.get("distance")
@@ -201,7 +207,9 @@ async def hybrid_search(root: Path, database: Database, query: str,
     Genannte Dateien (``focus``) werden nie herausgefiltert.
     """
     terms = query_terms(query)
-    if not terms and not (focus and focus.paths):
+    # Ausdrücklich genannte Dateien werden nie herausgefiltert; ein gewählter Ordner schon.
+    named_files = bool(focus and focus.paths and any(not path.endswith('/') for path in focus.paths))
+    if not terms and not named_files:
         # Nichts Suchbares (z. B. "1 + 2"): weder Index noch Embedding-Modell laden.
         return {"query": query, "results": [], "index": {}, "semantic": False, "skipped": True}
     status = (await sync_index(root, database, client, embed_model, excluded_dirs=excluded_dirs, focus=focus)
@@ -231,7 +239,7 @@ async def hybrid_search(root: Path, database: Database, query: str,
                                        namespaces, max(1, min(limit, 20)), focus.paths if focus else None)
                if query_vector else lexical)
     found = len(results)
-    if relevant_only and not (focus and focus.paths):
+    if relevant_only and not named_files:
         results = relevant_results(query, results)
     return {
         "query": query, "results": results, "index": status,

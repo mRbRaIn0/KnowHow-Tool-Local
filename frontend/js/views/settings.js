@@ -1,7 +1,8 @@
-// Einstellungen: Ollama, Daten, KI, Datenschutz, Oberfläche, Profile.
+// Einstellungen: Ollama, Daten, KI, Datenschutz, Oberfläche, Profile, Sprache.
 
 import { api } from '../api.js';
-import { confirmDialog, fmtBytes, h, icon, promptDialog, toast } from '../util.js';
+import { LANGUAGES, getLanguage, t } from '../i18n.js';
+import { confirmDialog, fill, fmtBytes, h, icon, kv, promptDialog, toast } from '../util.js';
 import {
   applyTheme, navigate, profileTone, refreshFileIndex, refreshStatus, state,
 } from '../store.js';
@@ -13,7 +14,7 @@ let models = [];
 export async function mount({ el }) {
   const view = h('div', { class: 'view' });
   el.main.append(view);
-  view.append(h('p', { class: 'field__hint', text: 'wird geladen …' }));
+  view.append(h('p', { class: 'field__hint', text: t('common.loading') }));
 
   try {
     settings = await api.settings();
@@ -35,17 +36,18 @@ function render(view, contextHost) {
 
   view.replaceChildren(
     h('div', { class: 'page-head' },
-      h('span', { class: 'label', text: 'Einstellungen' }),
-      h('h1', { text: 'Konfiguration' }),
-      h('p', { text: `Alle Angaben gelten für das Profil „${profile.name}" und werden lokal in data/config.json gespeichert.` })),
+      h('span', { class: 'label', text: t('nav.settings') }),
+      h('h1', { text: t('settings.title') }),
+      h('p', { text: t('settings.lead', { profile: profile.name }) })),
     profilesCard(view, contextHost),
     ollamaCard(profile, view),
     dataCard(profile, view),
     h('details', { class: 'settings-advanced' },
-      h('summary', { text: 'Erweitert' }),
+      h('summary', { text: t('nav.advanced') }),
       aiCard(profile),
       privacyCard(profile),
       appearanceCard()),
+    languageCard(),
   );
   renderContext(contextHost);
 }
@@ -61,21 +63,20 @@ function profilesCard(view, contextHost) {
     },
       h('span', { class: 'list__main' },
         h('span', { class: 'list__title', text: profile.name }),
-        h('span', { class: 'list__sub', text: profile.vault.path || 'kein Vault gesetzt' })),
+        h('span', { class: 'list__sub', text: profile.vault.path || t('settings.noVaultSet') })),
       active
-        ? h('span', { class: 'chip chip--accent', text: 'aktiv' })
-        : h('button', { class: 'btn btn--sm', onclick: () => activate(profile.id) }, 'Wechseln'),
+        ? h('span', { class: 'chip chip--accent', text: t('settings.active') })
+        : h('button', { class: 'btn btn--sm', onclick: () => activate(profile.id) }, t('settings.switch')),
       !active && settings.profiles.length > 1
-        ? h('button', { class: 'icon-btn', title: 'Profil löschen', onclick: () => removeProfile(profile, view, contextHost) }, icon('trash'))
+        ? h('button', { class: 'icon-btn', title: t('settings.deleteProfile'), onclick: () => removeProfile(profile, view, contextHost) }, icon('trash'))
         : null);
   });
 
   return h('div', { class: 'card', style: 'margin-bottom:14px' },
     h('div', { class: 'card__title' },
-      h('span', { class: 'label', text: 'Profile' }),
-      h('button', { class: 'btn btn--sm', onclick: () => addProfile(view, contextHost) }, icon('plus'), 'Profil anlegen')),
-    h('p', { class: 'field__hint', style: 'margin:0 0 10px',
-      text: 'Jedes Profil hat einen eigenen Vault und eine eigene Datenbank. Chats und Wissen werden nie zwischen Profilen geteilt.' }),
+      h('span', { class: 'label', text: t('settings.profiles') }),
+      h('button', { class: 'btn btn--sm', onclick: () => addProfile(view, contextHost) }, icon('plus'), t('settings.addProfile'))),
+    h('p', { class: 'field__hint', style: 'margin:0 0 10px', text: t('settings.profilesHint') }),
     h('div', { class: 'list' }, ...rows));
 }
 
@@ -93,16 +94,16 @@ async function activate(id) {
 
 async function addProfile(view, contextHost) {
   const name = await promptDialog({
-    title: 'Neues Profil',
-    description: 'Zum Beispiel „Unternehmen" mit einem eigenen, getrennten Vault.',
-    label: 'Name', value: '', confirmLabel: 'Anlegen',
+    title: t('settings.newProfile'),
+    description: t('settings.newProfileHint'),
+    label: t('folder.nameLabel'), value: '', confirmLabel: t('common.create'),
   });
   if (!name) return;
   try {
     await api.createProfile(name);
     settings = await api.settings();
     render(view, contextHost);
-    toast(`Profil „${name}" angelegt.`, 'ok');
+    toast(t('settings.profileCreated', { name }), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -110,16 +111,16 @@ async function addProfile(view, contextHost) {
 
 async function removeProfile(profile, view, contextHost) {
   const ok = await confirmDialog({
-    title: 'Profil löschen',
-    message: `Die Konfiguration von „${profile.name}" wird entfernt. Vault-Ordner und lokale Chatdatenbank bleiben unverändert erhalten.`,
-    confirmLabel: 'Löschen', danger: true,
+    title: t('settings.deleteProfile'),
+    message: t('settings.deleteProfileText', { name: profile.name }),
+    confirmLabel: t('common.delete'), danger: true,
   });
   if (!ok) return;
   try {
     await api.deleteProfile(profile.id);
     settings = await api.settings();
     render(view, contextHost);
-    toast('Profil gelöscht.', 'ok');
+    toast(t('settings.profileDeleted'), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -138,44 +139,43 @@ function ollamaCard(profile, view) {
 
   return h('div', { class: 'card', style: 'margin-bottom:14px' },
     h('div', { class: 'card__title' }, h('span', { class: 'label', text: 'Ollama' })),
-    field('Chat-Modell', 'Wird für Chats, Zusammenfassungen und Bildanalyse verwendet.',
+    field(t('settings.chatModel'), t('settings.chatModelHint'),
       h('div', { class: 'row' }, chatSelect,
         missing
           ? h('button', { class: 'btn btn--sm btn--primary', onclick: () => pullModel(profile.ollama.chat_model, view) },
-            'Herunterladen')
+            t('common.download'))
           : null)),
     h('details', { class: 'settings-advanced' },
-      h('summary', { text: 'Modelloptionen' }),
-      field('Server', 'Nur lokale Adressen, solange der Offline-Modus aktiv ist.',
+      h('summary', { text: t('settings.modelOptions') }),
+      field(t('settings.server'), t('settings.serverHint'),
         h('input', {
           class: 'input input--mono', value: profile.ollama.base_url,
           onchange: (event) => patch({ ollama: { base_url: event.target.value.trim() } }),
         })),
-      field('Modell im Speicher halten', 'Vermeidet erneutes Laden zwischen Anfragen. Datei-Direktaktionen benötigen kein Modell.',
+      field(t('settings.keepAlive'), t('settings.keepAliveHint'),
         h('input', { class: 'input input--mono', value: profile.ollama.keep_alive || '10m',
           placeholder: '10m', pattern: '0|[1-9][0-9]*[smh]',
           onchange: (event) => {
             if (event.target.reportValidity()) patch({ ollama: { keep_alive: event.target.value } });
           } })),
-      field('Embedding-Modell', 'Erzeugt die lokalen Vektoren für die semantische Wissenssuche.',
+      field(t('settings.embedModel'), t('settings.embedModelHint'),
         h('div', { class: 'row' }, embedSelect,
           h('button', {
             class: 'btn btn--sm',
             onclick: () => pullModel(profile.ollama.embed_model || 'nomic-embed-text', view),
-          }, 'Herunterladen'))),
+          }, t('common.download')))),
       models.length
-        ? h('p', { class: 'field__hint', text: `${models.length} Modelle lokal installiert.` })
-        : h('p', { class: 'field__hint', text: 'Keine Modelle gefunden — läuft Ollama?' }),
-      h('p', { class: 'field__hint', style: 'margin-top:10px',
-        text: 'Standard ist qwen3.5:9b; qwen3.5:4b ist schneller. nomic-embed-text dient nur der Suche.' })));
+        ? h('p', { class: 'field__hint', text: t('settings.modelsInstalled', { n: models.length }) })
+        : h('p', { class: 'field__hint', text: t('settings.noModels') }),
+      h('p', { class: 'field__hint', style: 'margin-top:10px', text: t('settings.modelTip') })));
 }
 
 function modelSelect(value, onChange, allowEmpty = false) {
   const select = h('select', { class: 'select', onchange: (event) => onChange(event.target.value) });
-  if (allowEmpty) select.append(h('option', { value: '', text: '– keines –' }));
+  if (allowEmpty) select.append(h('option', { value: '', text: t('settings.none') }));
   const names = models.map((model) => model.name);
   if (value && !names.includes(value)) {
-    select.append(h('option', { value, text: `${value} (nicht installiert)` }));
+    select.append(h('option', { value, text: `${value} (${t('settings.notInstalled')})` }));
   }
   for (const model of models) {
     select.append(h('option', {
@@ -192,13 +192,13 @@ function modelSelect(value, onChange, allowEmpty = false) {
 function dataCard(profile, view) {
   const pathInput = h('input', {
     class: 'input input--mono', value: profile.vault.path,
-        placeholder: 'z. B. C:\\Vault',
+    placeholder: t('settings.vaultPlaceholder'),
     onchange: (event) => patch({ vault: { path: event.target.value.trim() } }, true),
   });
 
   return h('div', { class: 'card', style: 'margin-bottom:14px' },
-    h('div', { class: 'card__title' }, h('span', { class: 'label', text: 'Daten' })),
-    field('Vault-Ordner', 'Die App arbeitet ausschließlich in diesem ausdrücklich ausgewählten Ordner und legt dort die Hauptseite „00 Inhalt.md“ an.',
+    h('div', { class: 'card__title' }, h('span', { class: 'label', text: t('settings.data') })),
+    field(t('settings.vaultFolder'), t('settings.vaultFolderHint'),
       h('div', { class: 'row' }, pathInput,
         h('button', {
           class: 'btn', onclick: async () => {
@@ -209,24 +209,24 @@ function dataCard(profile, view) {
               await patch({ vault: { path: picked.path } }, true);
             } catch (error) { toast(error.message, 'bad'); }
           },
-        }, icon('folder-open'), 'Auswählen'))),
+        }, icon('folder-open'), t('settings.choose')))),
     h('details', { class: 'settings-advanced' },
-      h('summary', { text: 'Vaultoptionen und Backup' }),
-      field('Vault-Hauptseite', 'Steuert Stil, Emoji-Nutzung, Ablage, Links und enthält den automatisch gepflegten Ordner- und Dateiüberblick.',
+      h('summary', { text: t('settings.vaultOptions') }),
+      field(t('settings.guide'), t('settings.guideHint'),
         h('input', {
           class: 'input input--mono', value: '00 Inhalt.md', disabled: true,
         })),
-      field('Anhänge', 'Zielordner für Bilder und Dateien, die die App ablegt.',
+      field(t('settings.attachments'), t('settings.attachmentsHint'),
         h('input', {
           class: 'input input--mono', value: profile.vault.attachments_dir,
           onchange: (event) => patch({ vault: { attachments_dir: event.target.value.trim() } }),
         })),
-      field('Vorlagen', 'Ordner mit deinen Markdown-Vorlagen.',
+      field(t('settings.templates'), t('settings.templatesHint'),
         h('input', {
           class: 'input input--mono', value: profile.vault.templates_dir,
           onchange: (event) => patch({ vault: { templates_dir: event.target.value.trim() } }),
         })),
-      field('Backup', 'Erstellt eine lokale ZIP-Datei mit Vault, Profil und konsistenter Chatdatenbank.',
+      field(t('settings.backup'), t('settings.backupHint'),
         backupControl())));
 }
 
@@ -236,21 +236,21 @@ function backupControl() {
     class: 'btn',
     onclick: async () => {
       button.disabled = true;
-      button.textContent = 'Backup läuft …';
+      button.textContent = t('settings.backupRunning');
       try {
         const result = await api.createBackup();
         info.replaceChildren(h('a', {
           href: api.backupUrl(result.name), text: `${result.name} · ${fmtBytes(result.size)}`,
         }));
-        toast('Backup vollständig erstellt.', 'ok');
+        toast(t('settings.backupDone'), 'ok');
       } catch (error) {
         toast(error.message, 'bad');
       } finally {
         button.disabled = false;
-        button.replaceChildren(icon('save'), ' Backup erstellen');
+        button.replaceChildren(icon('save'), ` ${t('settings.backupCreate')}`);
       }
     },
-  }, icon('save'), ' Backup erstellen');
+  }, icon('save'), ` ${t('settings.backupCreate')}`);
   return h('div', { class: 'row row--wrap' }, button, info);
 }
 
@@ -266,34 +266,34 @@ function aiCard(profile) {
   temperature.addEventListener('change', () => patch({ ai: { temperature: Number(temperature.value) } }));
 
   return h('div', { class: 'card', style: 'margin-bottom:14px' },
-    h('div', { class: 'card__title' }, h('span', { class: 'label', text: 'KI' })),
-    field('Temperatur', 'Niedrig = sachlich und wiederholbar, hoch = kreativer.',
+    h('div', { class: 'card__title' }, h('span', { class: 'label', text: t('settings.ai') })),
+    field(t('settings.temperature'), t('settings.temperatureHint'),
       h('div', { class: 'row' }, temperature, temperatureValue)),
-    field('Kontextgröße (Token)', 'Mehr Kontext braucht mehr VRAM. 8192 ist für 12 GB ein guter Start.',
+    field(t('settings.context'), t('settings.contextHint'),
       h('input', {
         class: 'input input--mono', type: 'number', min: '1024', max: '262144', step: '1024',
         value: String(profile.ai.num_ctx),
         onchange: (event) => patch({ ai: { num_ctx: Number(event.target.value) } }),
       })),
-    field('Treffer für Wissensfragen', 'Wie viele passende Textabschnitte die lokale RAG-Suche heranzieht.',
+    field(t('settings.topK'), t('settings.topKHint'),
       h('input', {
         class: 'input input--mono', type: 'number', min: '1', max: '20',
         value: String(profile.ai.rag_top_k),
         onchange: (event) => patch({ ai: { rag_top_k: Number(event.target.value) } }),
       })),
-    toggle('Schreibvorschau', 'Notizen vor dem Speichern als Alt → Neu prüfen, anpassen oder abbrechen.',
+    toggle(t('settings.previewWrites'), t('settings.previewWritesHint'),
       profile.ai.preview_writes, (checked) => patch({ ai: { preview_writes: checked } })),
-    toggle('Bild- und Scanwissen suchbar speichern', 'Erstellt Quellennotizen in 91 Quellenwissen mit Original-Link, OCR und Seitenangaben. „Nur ansehen“ bleibt ohne Vault-Ablage.',
+    toggle(t('settings.sourceNotes'), t('settings.sourceNotesHint'),
       profile.ai.source_notes, (checked) => patch({ ai: { source_notes: checked } })),
-    toggle('Separates Vision-Modell verwenden', 'Nur falls installiert: alle Bild-/Scanseiten nacheinander auswerten, dann zum Chatmodell wechseln. Kein paralleles Laden; spätere Bildwerkzeuge verwenden das Chatmodell.',
+    toggle(t('settings.separateVision'), t('settings.separateVisionHint'),
       profile.ai.separate_vision, (checked) => patch({ ai: { separate_vision: checked } })),
-    field('Optionales Vision-Modell', 'Wird nicht automatisch installiert. Ohne verfügbares Vision-Modell nutzt die App das Chatmodell, sofern dieses Bilder unterstützt.',
-      h('select', { class: 'input', value: profile.ollama.vision_model, 'aria-label': 'Optionales Vision-Modell',
+    field(t('settings.visionModel'), t('settings.visionModelHint'),
+      h('select', { class: 'input', value: profile.ollama.vision_model, 'aria-label': t('settings.visionModel'),
         onchange: (event) => patch({ ollama: { vision_model: event.target.value } }) },
         ...[...new Set([profile.ollama.vision_model, ...models.filter(m => !/embed/i.test(m.name)).map(m => m.name)])].filter(Boolean).map(name =>
           h('option', { value: name, selected: name === profile.ollama.vision_model,
-            text: name + (models.some(m => m.name === name) ? '' : ' (nicht installiert)') })))),
-    field('System-Anweisung', 'Gilt für jeden neuen Chat.',
+            text: name + (models.some(m => m.name === name) ? '' : ` (${t('settings.notInstalled')})`) })))),
+    field(t('settings.systemPrompt'), t('settings.systemPromptHint'),
       h('textarea', {
         class: 'textarea', rows: 4,
         onchange: (event) => patch({ ai: { system_prompt: event.target.value } }),
@@ -304,10 +304,10 @@ function aiCard(profile) {
 
 function privacyCard(profile) {
   return h('div', { class: 'card', style: 'margin-bottom:14px' },
-    h('div', { class: 'card__title' }, h('span', { class: 'label', text: 'Datenschutz' })),
-    toggle('Offline-Modus', 'Erlaubt ausschließlich Verbindungen zu 127.0.0.1 und localhost.',
+    h('div', { class: 'card__title' }, h('span', { class: 'label', text: t('dash.privacy') })),
+    toggle(t('settings.offlineMode'), t('settings.offlineModeHint'),
       profile.privacy.offline_mode, (checked) => patch({ privacy: { offline_mode: checked } })),
-    toggle('Externe Links blockieren', 'Links auf http(s)-Adressen in Notizen werden nicht anklickbar dargestellt.',
+    toggle(t('settings.blockExternal'), t('settings.blockExternalHint'),
       profile.privacy.block_external_urls, (checked) => patch({ privacy: { block_external_urls: checked } })));
 }
 
@@ -315,7 +315,7 @@ function privacyCard(profile) {
 
 function appearanceCard() {
   const current = settings.ui.theme;
-  const options = [['light', 'Hell'], ['dark', 'Dunkel'], ['system', 'System']];
+  const options = [['light', t('settings.themeLight')], ['dark', t('settings.themeDark')], ['system', t('settings.themeSystem')]];
   const row = h('div', { class: 'row' });
   for (const [value, label] of options) {
     row.append(h('button', {
@@ -323,7 +323,7 @@ function appearanceCard() {
       onclick: async () => {
         applyTheme(value);
         settings.ui.theme = value;
-        try { await api.updateUI(value); } catch (error) { toast(error.message, 'bad'); }
+        try { await api.updateUI({ theme: value }); } catch (error) { toast(error.message, 'bad'); }
         for (const [index, button] of [...row.children].entries()) {
           button.className = `btn btn--sm ${options[index][0] === value ? 'btn--primary' : ''}`;
         }
@@ -331,8 +331,31 @@ function appearanceCard() {
     }, label));
   }
   return h('div', { class: 'card' },
-    h('div', { class: 'card__title' }, h('span', { class: 'label', text: 'Oberfläche' })),
-    field('Design', 'Hell, dunkel oder passend zur Windows-Einstellung.', row));
+    h('div', { class: 'card__title' }, h('span', { class: 'label', text: t('settings.appearance') })),
+    field(t('settings.design'), t('settings.designHint'), row));
+}
+
+/* --------------------------------------------------------- Sprache */
+
+/** Die Sprache gilt für die gesamte Oberfläche; nach dem Speichern wird sie komplett neu geladen. */
+function languageCard() {
+  const select = h('select', { class: 'select', 'aria-label': t('settings.language') },
+    ...LANGUAGES.map(([code, name]) => h('option', { value: code, text: name })));
+  select.value = getLanguage();
+  select.addEventListener('change', async () => {
+    select.disabled = true;
+    try {
+      await api.updateUI({ language: select.value });
+      location.reload();
+    } catch (error) {
+      select.value = getLanguage();
+      select.disabled = false;
+      toast(error.message, 'bad');
+    }
+  });
+  return h('div', { class: 'card', style: 'margin-top:14px' },
+    h('div', { class: 'card__title' }, h('span', { class: 'label', text: t('settings.language') })),
+    h('div', { class: 'field' }, select, h('span', { class: 'field__hint', text: t('settings.languageHint') })));
 }
 
 /* --------------------------------------------------------- Helfer */
@@ -360,7 +383,7 @@ async function patch(body, reloadFiles = false) {
     settings.profile = await api.updateProfile(settings.active_profile, body);
     await refreshStatus();
     if (reloadFiles) await refreshFileIndex();
-    toast('Gespeichert.', 'ok');
+    toast(t('common.saved'), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -368,26 +391,25 @@ async function patch(body, reloadFiles = false) {
 
 function renderContext(host) {
   const status = state.status;
-  host.replaceChildren(
+  fill(host,
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Wo liegt was' }),
-      h('dl', { class: 'ctx-kv' },
-        h('dt', { text: 'Konfig' }), h('dd', { text: 'data/config.json' }),
-        h('dt', { text: 'Datenbank' }), h('dd', { text: `data/profiles/${settings.active_profile}/app.db` }),
-        h('dt', { text: 'Protokoll' }), h('dd', { text: 'data/logs/app.log' }),
-        h('dt', { text: 'Vault' }), h('dd', { text: settings.profile.vault.path || '–' }))),
+      h('span', { class: 'label', text: t('settings.whereIsWhat') }),
+      kv([
+        [t('settings.ctxConfig'), 'data/config.json'],
+        [t('settings.ctxDatabase'), `data/profiles/${settings.active_profile}/app.db`],
+        [t('settings.ctxLog'), 'data/logs/app.log'],
+        ['Vault', settings.profile.vault.path || '–'],
+      ])),
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Update' }),
-      h('p', { class: 'field__hint', style: 'margin:0',
-        text: 'Neue EXE in denselben Ordner legen und den Ordner data behalten. Chats überleben das, solange data nicht in einen neuen leeren Ordner wandert.' })),
+      h('span', { class: 'label', text: t('settings.update') }),
+      h('p', { class: 'field__hint', style: 'margin:0', text: t('settings.updateHint') })),
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Trennung' }),
-      h('p', { class: 'field__hint', style: 'margin:0',
-        text: 'Profile teilen weder Datenbank noch Chats noch Wissensindex. Auf einem Firmenrechner kann ausschließlich das Unternehmensprofil eingerichtet werden.' })),
+      h('span', { class: 'label', text: t('settings.separation') }),
+      h('p', { class: 'field__hint', style: 'margin:0', text: t('settings.separationHint') })),
     status?.ollama?.online
       ? null
       : h('div', { class: 'ctx-block' },
-        h('span', { class: 'label', text: 'Hinweis' }),
-        h('p', { class: 'field__hint', style: 'margin:0', text: 'Ollama antwortet gerade nicht. Modelllisten bleiben leer, bis der Dienst läuft.' })),
+        h('span', { class: 'label', text: t('toast.info') }),
+        h('p', { class: 'field__hint', style: 'margin:0', text: t('settings.ollamaSilent') })),
   );
 }

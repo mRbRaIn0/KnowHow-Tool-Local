@@ -1,9 +1,10 @@
 // Dateien: Vault-Baum links, Editor bzw. Betrachter in der Mitte.
 
 import { api, uploadToVault } from '../api.js';
+import { t } from '../i18n.js';
 import { collectLinks, renderMarkdown, splitFrontmatter } from '../markdown.js';
 import {
-  baseName, confirmDialog, fmtBytes, fmtDate, h, icon, parentDir,
+  baseName, confirmDialog, fill, fmtBytes, fmtDate, h, icon, kv, parentDir,
   promptDialog, toast,
 } from '../util.js';
 import {
@@ -46,8 +47,8 @@ export async function mount({ route, el }) {
 function noVaultState() {
   return h('div', { class: 'empty', style: 'height:100%' },
     icon('folder-open'),
-    h('h3', { text: 'Kein Vault ausgewählt' }),
-    h('p', { text: 'Wähle den Ordner deines Obsidian-Vaults. Die App liest ausschließlich diesen Ordner.' }),
+    h('h3', { text: t('common.noVault') }),
+    h('p', { text: t('files.noVaultText') }),
     h('button', {
       class: 'btn btn--primary',
       onclick: async () => {
@@ -56,15 +57,15 @@ function noVaultState() {
         await api.updateProfile(state.status.profile.id, { vault: { path: picked.path } });
         location.reload();
       },
-    }, 'Ordner auswählen'));
+    }, t('dash.chooseFolder')));
 }
 
 function pickState() {
   return h('div', { class: 'empty', style: 'height:100%' },
     icon('files'),
-    h('h3', { text: 'Keine Datei geöffnet' }),
-    h('p', { text: 'Wähle links eine Datei oder lege eine neue Notiz an.' }),
-    h('button', { class: 'btn btn--primary', onclick: () => createNote('') }, icon('plus'), 'Neue Notiz'));
+    h('h3', { text: t('files.noFile') }),
+    h('p', { text: t('files.noFileText') }),
+    h('button', { class: 'btn btn--primary', onclick: () => createNote('') }, icon('plus'), t('dash.newNote')));
 }
 
 /* ----------------------------------------------------- Dateibaum */
@@ -72,10 +73,10 @@ function pickState() {
 async function renderTree() {
   const head = h('div', { class: 'rail-head' },
     h('span', { class: 'label', text: state.status?.vault?.name || 'Vault' }),
-    h('button', { class: 'icon-btn', title: 'Neue Notiz', onclick: () => createNote(currentFolder()) }, icon('plus')),
-    h('button', { class: 'icon-btn', title: 'Neuer Ordner', onclick: () => createFolder(currentFolder()) }, icon('folder-open')),
-    h('button', { class: 'icon-btn', title: 'Dateien hochladen (in den Ordner der geöffneten Datei)', onclick: () => pickUpload(currentFolder()) }, icon('clip')),
-    h('button', { class: 'icon-btn', title: 'Im Explorer anzeigen', onclick: () => reveal('') }, icon('external')));
+    h('button', { class: 'icon-btn', title: t('dash.newNote'), onclick: () => createNote(currentFolder()) }, icon('plus')),
+    h('button', { class: 'icon-btn', title: t('files.newFolder'), onclick: () => createFolder(currentFolder()) }, icon('folder-open')),
+    h('button', { class: 'icon-btn', title: t('files.uploadHint'), onclick: () => pickUpload(currentFolder()) }, icon('clip')),
+    h('button', { class: 'icon-btn', title: t('files.showInExplorer'), onclick: () => reveal('') }, icon('external')));
   const tree = h('div', { class: 'tree' });
   tree.addEventListener('dragover', (event) => {
     const types = Array.from(event.dataTransfer?.types || []);
@@ -194,7 +195,7 @@ async function uploadInto(files, targetDir) {
     for (const problem of result.fehler || []) toast(`${problem.name}: ${problem.grund}`, 'bad');
     const saved = result.gespeichert || [];
     if (saved.length) {
-      toast(saved.length === 1 ? `Gespeichert: ${saved[0].path}` : `${saved.length} Dateien gespeichert in ${targetDir || 'Vault-Stamm'}.`, 'ok');
+      toast(saved.length === 1 ? t('files.savedPath', { path: saved[0].path }) : t('files.filesSavedIn', { n: saved.length, folder: targetDir || t('files.vaultRoot') }), 'ok');
       await refreshFileIndex();
       if (targetDir) openFolders.add(targetDir);
       await renderTree();
@@ -219,7 +220,7 @@ async function moveDropped(event, targetDir) {
         : `${result.path}${editor.path.slice(source.length)}`;
       navigate(`/files?path=${encodeURIComponent(nextPath)}`);
     }
-    toast(`Verschoben nach ${targetDir || 'Vault-Stamm'}.`, 'ok');
+    toast(t('files.movedTo', { folder: targetDir || t('files.vaultRoot') }), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -277,8 +278,8 @@ function renderViewer(data) {
   elements.main.replaceChildren(h('div', { class: 'editor' },
     h('div', { class: 'editor__bar' },
       h('span', { class: 'editor__path', html: `${escapePath(parentDir(data.path))}<b>${escapeHtml(data.name)}</b>` }),
-      h('button', { class: 'btn btn--sm', onclick: () => reveal(data.path) }, icon('external'), 'Im Explorer'),
-      h('button', { class: 'btn btn--sm btn--danger', onclick: () => deleteFile(data) }, icon('trash'), 'Löschen')),
+      h('button', { class: 'btn btn--sm', onclick: () => reveal(data.path) }, icon('external'), t('files.inExplorer')),
+      h('button', { class: 'btn btn--sm btn--danger', onclick: () => deleteFile(data) }, icon('trash'), t('common.delete'))),
     h('div', { class: 'viewer' }, body)));
   editor = { path: data.path, original: '', dirty: false, mode: editor.mode };
 }
@@ -298,15 +299,15 @@ function renderEditor(data) {
     h('div', { class: 'editor__preview' }, preview));
 
   const dirtyDot = h('span', { class: 'dirty-dot', style: 'display:none' });
-  const saveButton = h('button', { class: 'btn btn--sm btn--primary', onclick: save }, icon('save'), 'Speichern');
+  const saveButton = h('button', { class: 'btn btn--sm btn--primary', onclick: save }, icon('save'), t('common.save'));
 
   elements.main.replaceChildren(h('div', { class: 'editor' },
     h('div', { class: 'editor__bar' },
       h('span', { class: 'editor__path', html: `${escapePath(parentDir(data.path))}<b>${escapeHtml(data.name)}</b>` }),
       dirtyDot,
       modeSwitch(panes),
-      h('button', { class: 'btn btn--sm', onclick: () => reveal(data.path) }, icon('external'), 'Explorer'),
-      h('button', { class: 'btn btn--sm', onclick: () => renameFile({ path: data.path, name: data.name }) }, icon('pencil'), 'Umbenennen'),
+      h('button', { class: 'btn btn--sm', onclick: () => reveal(data.path) }, icon('external'), t('files.explorer')),
+      h('button', { class: 'btn btn--sm', onclick: () => renameFile({ path: data.path, name: data.name }) }, icon('pencil'), t('common.rename')),
       h('button', { class: 'btn btn--sm btn--danger', onclick: () => deleteFile(data) }, icon('trash')),
       saveButton),
     panes));
@@ -318,7 +319,7 @@ function renderEditor(data) {
 }
 
 function modeSwitch(panes) {
-  const modes = [['single', 'Text'], ['split', 'Geteilt'], ['preview', 'Vorschau']];
+  const modes = [['single', t('files.modeText')], ['split', t('files.modeSplit')], ['preview', t('files.modePreview')]];
   const wrap = h('div', { class: 'row', style: 'gap:2px' });
   for (const [mode, label] of modes) {
     wrap.append(h('button', {
@@ -357,9 +358,9 @@ function onWikiLink(event) {
 
   const target = link.dataset.wikilink;
   confirmDialog({
-    title: 'Notiz existiert noch nicht',
-    message: `„${target}" wurde im Vault nicht gefunden. Soll die Notiz jetzt angelegt werden?`,
-    confirmLabel: 'Anlegen',
+    title: t('files.noteMissing'),
+    message: t('files.noteMissingText', { target }),
+    confirmLabel: t('common.create'),
   }).then(async (ok) => {
     if (!ok) return;
     const folder = currentFolder();
@@ -382,7 +383,7 @@ async function save() {
     await api.writeFile(editor.path, content, true);
     editor.original = content;
     setDirty(false);
-    toast(`Gespeichert: ${baseName(editor.path)}`, 'ok');
+    toast(t('files.savedName', { name: baseName(editor.path) }), 'ok');
     await refreshFileIndex();
   } catch (error) {
     toast(error.message, 'bad');
@@ -400,9 +401,9 @@ function onKeyDown(event) {
 
 async function createNote(folder) {
   const name = await promptDialog({
-    title: 'Neue Notiz',
-    description: folder ? `Wird angelegt in „${folder}".` : 'Wird im Vault-Stammordner angelegt.',
-    label: 'Titel', value: 'Neue Notiz', confirmLabel: 'Anlegen',
+    title: t('dash.newNote'),
+    description: folder ? t('files.createdIn', { folder }) : t('files.createdInRoot'),
+    label: t('chat.titleLabel'), value: t('dash.newNote'), confirmLabel: t('common.create'),
   });
   if (!name) return;
   const clean = name.replace(/[\\/:*?"<>|]/g, '-');
@@ -413,7 +414,7 @@ async function createNote(folder) {
     await refreshFileIndex();
     await renderTree();
     navigate(`/files?path=${encodeURIComponent(target)}`);
-    toast('Notiz angelegt.', 'ok');
+    toast(t('files.noteCreated'), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -421,15 +422,15 @@ async function createNote(folder) {
 
 async function createFolder(parent) {
   const name = await promptDialog({
-    title: 'Neuer Ordner',
-    description: parent ? `Wird angelegt in „${parent}".` : 'Wird im Vault-Stammordner angelegt.',
-    label: 'Ordnername', value: '', confirmLabel: 'Anlegen',
+    title: t('files.newFolder'),
+    description: parent ? t('files.createdIn', { folder: parent }) : t('files.createdInRoot'),
+    label: t('files.folderName'), value: '', confirmLabel: t('common.create'),
   });
   if (!name) return;
   try {
     await api.mkdir(`${parent ? `${parent}/` : ''}${name}`);
     await renderTree();
-    toast('Ordner angelegt.', 'ok');
+    toast(t('files.folderCreated'), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -437,7 +438,7 @@ async function createFolder(parent) {
 
 async function renameFile(node) {
   const name = await promptDialog({
-    title: 'Umbenennen', label: 'Neuer Name', value: node.name, confirmLabel: 'Umbenennen',
+    title: t('common.rename'), label: t('files.newName'), value: node.name, confirmLabel: t('common.rename'),
   });
   if (!name || name === node.name) return;
   try {
@@ -445,7 +446,7 @@ async function renameFile(node) {
     await refreshFileIndex();
     await renderTree();
     if (editor.path === node.path) navigate(`/files?path=${encodeURIComponent(result.path)}`);
-    toast('Umbenannt.', 'ok');
+    toast(t('files.renamed'), 'ok');
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -453,16 +454,16 @@ async function renameFile(node) {
 
 async function deleteFile(node) {
   const ok = await confirmDialog({
-    title: 'Endgültig löschen?',
-    message: `„${node.path}" wird aus dem Vault entfernt. Das lässt sich nicht rückgängig machen.`,
-    confirmLabel: 'Löschen', danger: true,
+    title: t('files.deleteTitle'),
+    message: t('files.deleteText', { path: node.path }),
+    confirmLabel: t('common.delete'), danger: true,
   });
   if (!ok) return;
   try {
     await api.deleteEntry(node.path);
     await refreshFileIndex();
     await renderTree();
-    toast('Gelöscht.', 'ok');
+    toast(t('files.deleted'), 'ok');
     navigate('/files');
   } catch (error) {
     toast(error.message, 'bad');
@@ -484,8 +485,8 @@ function fileMenu(node) {
 function folderMenu(node) {
   promptDialog({
     title: node.name,
-    description: 'Was möchtest du in diesem Ordner tun?',
-    label: 'Name der neuen Notiz', value: 'Neue Notiz', confirmLabel: 'Notiz anlegen',
+    description: t('files.folderMenuText'),
+    label: t('files.newNoteName'), value: t('dash.newNote'), confirmLabel: t('files.createNote'),
   }).then(async (name) => {
     if (!name) return;
     const path = `${node.path}/${name}${name.endsWith('.md') ? '' : '.md'}`;
@@ -506,21 +507,20 @@ function folderMenu(node) {
 function renderContext(data, content) {
   const blocks = [
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Datei' }),
-      h('dl', { class: 'ctx-kv' },
-        h('dt', { text: 'Name' }), h('dd', { text: data.name || baseName(data.path) }),
-        h('dt', { text: 'Ordner' }), h('dd', { text: parentDir(data.path) || '(Stamm)' }),
-        data.size ? h('dt', { text: 'Größe' }) : null,
-        data.size ? h('dd', { text: fmtBytes(data.size) }) : null,
-        data.modified ? h('dt', { text: 'Geändert' }) : null,
-        data.modified ? h('dd', { text: fmtDate(data.modified) }) : null)),
+      h('span', { class: 'label', text: t('files.file') }),
+      kv([
+        [t('ctx.name'), data.name || baseName(data.path)],
+        [t('files.folder'), parentDir(data.path) || t('files.rootShort')],
+        [t('dash.size'), data.size ? fmtBytes(data.size) : null],
+        [t('files.modified'), data.modified ? fmtDate(data.modified) : null],
+      ])),
   ];
 
   if (typeof content === 'string') {
     const { frontmatter } = splitFrontmatter(content);
     if (frontmatter && Object.keys(frontmatter).length) {
       blocks.push(h('div', { class: 'ctx-block' },
-        h('span', { class: 'label', text: 'Metadaten' }),
+        h('span', { class: 'label', text: t('files.metadata') }),
         h('dl', { class: 'ctx-kv' },
           ...Object.entries(frontmatter).flatMap(([key, value]) =>
             [h('dt', { text: key }), h('dd', { text: value })]))));
@@ -529,7 +529,7 @@ function renderContext(data, content) {
     const links = collectLinks(content);
     if (links.length) {
       blocks.push(h('div', { class: 'ctx-block' },
-        h('span', { class: 'label', text: `Verknüpfungen (${links.length})` }),
+        h('span', { class: 'label', text: t('files.links', { n: links.length }) }),
         h('div', { class: 'list' },
           ...links.map((link) => {
             const resolved = resolveLink(link.target);
@@ -537,19 +537,19 @@ function renderContext(data, content) {
               class: 'list__item',
               onclick: () => resolved
                 ? navigate(`/files?path=${encodeURIComponent(resolved)}`)
-                : toast(`„${link.target}" gibt es im Vault noch nicht.`),
+                : toast(t('files.linkMissing', { target: link.target })),
             },
               icon(link.embed ? 'image' : 'note'),
               h('span', { class: 'list__main' },
                 h('span', { class: 'list__title', text: link.alias || link.target }),
-                h('span', { class: 'list__sub', text: resolved || 'nicht gefunden' })));
+                h('span', { class: 'list__sub', text: resolved || t('files.notFound') })));
           }))));
     }
 
     const backlinks = findBacklinks(data.path);
     if (backlinks.length) {
       blocks.push(h('div', { class: 'ctx-block' },
-        h('span', { class: 'label', text: `Erwähnt in (${backlinks.length})` }),
+        h('span', { class: 'label', text: t('files.mentionedIn', { n: backlinks.length }) }),
         h('div', { class: 'list' },
           ...backlinks.map((file) => h('button', {
             class: 'list__item',
@@ -561,7 +561,7 @@ function renderContext(data, content) {
     }
   }
 
-  elements.context.replaceChildren(...blocks);
+  fill(elements.context, ...blocks);
 }
 
 // Backlinks über den Dateinamen: günstig und für den Anfang ausreichend.

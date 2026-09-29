@@ -1,5 +1,7 @@
 // Zugriff auf das lokale Backend. Alle Anfragen gehen an denselben Ursprung.
 
+import { t } from './i18n.js';
+
 export class ApiError extends Error {
   constructor(message, { status = 0, kind = 'error', payload = null } = {}) {
     super(message);
@@ -18,7 +20,7 @@ async function request(path, options = {}) {
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
   } catch (error) {
-    throw new ApiError('Das lokale Backend antwortet nicht. Läuft die App noch?', { kind: 'offline' });
+    throw new ApiError(t('api.offline'), { kind: 'offline' });
   }
 
   if (response.status === 204) return null;
@@ -33,7 +35,7 @@ async function request(path, options = {}) {
     const detail = data?.detail;
     const message = typeof detail === 'string'
       ? detail
-      : detail?.message || `Anfrage fehlgeschlagen (${response.status}).`;
+      : detail?.message || t('api.requestFailed', { status: response.status });
     throw new ApiError(message, {
       status: response.status,
       kind: (typeof detail === 'object' && detail?.kind) || 'error',
@@ -119,7 +121,7 @@ export const api = {
   // Einstellungen
   settings: () => api.get('/api/settings'),
   updateProfile: (id, patch) => api.patch(`/api/settings/profile/${id}`, { patch }),
-  updateUI: (theme) => api.patch('/api/settings/ui', { theme }),
+  updateUI: (patch) => api.patch('/api/settings/ui', typeof patch === 'string' ? { theme: patch } : patch),
   createProfile: (name) => api.post('/api/settings/profiles', { name }),
   activateProfile: (id) => api.post(`/api/settings/profiles/${id}/activate`),
   deleteProfile: (id) => api.del(`/api/settings/profiles/${id}`),
@@ -134,12 +136,12 @@ export async function uploadFiles(chatId, files) {
   try {
     response = await fetch(`/api/attachments/${chatId}`, { method: 'POST', body: form });
   } catch {
-    throw new ApiError('Der Upload ist fehlgeschlagen. Läuft das Backend noch?', { kind: 'offline' });
+    throw new ApiError(t('api.uploadOffline'), { kind: 'offline' });
   }
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = data?.detail;
-    throw new ApiError(typeof detail === 'string' ? detail : detail?.message || 'Upload fehlgeschlagen.',
+    throw new ApiError(typeof detail === 'string' ? detail : detail?.message || t('api.uploadFailed'),
       { status: response.status, kind: detail?.kind || 'error' });
   }
   return data;
@@ -154,12 +156,12 @@ export async function uploadToVault(files, folder = null) {
   try {
     response = await fetch('/api/files/upload', { method: 'POST', body: form });
   } catch {
-    throw new ApiError('Die Ablage ist fehlgeschlagen. Läuft das Backend noch?', { kind: 'offline' });
+    throw new ApiError(t('api.storeOffline'), { kind: 'offline' });
   }
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = data?.detail;
-    throw new ApiError(typeof detail === 'string' ? detail : detail?.message || 'Ablage fehlgeschlagen.',
+    throw new ApiError(typeof detail === 'string' ? detail : detail?.message || t('api.storeFailed'),
       { status: response.status, kind: detail?.kind || 'error' });
   }
   return data;
@@ -182,14 +184,14 @@ export function streamPost(path, body, { onEvent, onError, onDone } = {}) {
         signal: controller.signal,
       });
     } catch (error) {
-      if (error.name !== 'AbortError') onError?.(new ApiError('Verbindung zum Backend verloren.', { kind: 'offline' }));
+      if (error.name !== 'AbortError') onError?.(new ApiError(t('api.connectionLost'), { kind: 'offline' }));
       return;
     }
 
     if (!response.ok) {
       let detail = null;
       try { detail = (await response.json())?.detail; } catch { /* ignorieren */ }
-      const message = typeof detail === 'string' ? detail : detail?.message || `Fehler ${response.status}.`;
+      const message = typeof detail === 'string' ? detail : detail?.message || t('api.errorStatus', { status: response.status });
       onError?.(new ApiError(message, { status: response.status, kind: detail?.kind || 'error' }));
       return;
     }
@@ -211,7 +213,7 @@ export function streamPost(path, body, { onEvent, onError, onDone } = {}) {
         }
       }
     } catch (error) {
-      if (error.name !== 'AbortError') onError?.(new ApiError(`Stream abgebrochen: ${error.message}`));
+      if (error.name !== 'AbortError') onError?.(new ApiError(t('api.streamAborted', { message: error.message })));
       return;
     }
     onDone?.();

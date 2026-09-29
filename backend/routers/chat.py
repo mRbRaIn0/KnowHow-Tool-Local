@@ -27,11 +27,15 @@ from ..tools import (
     ATTACHMENT_TOOLS, BASE_INSTRUCTIONS, EDIT_TOOLS, TOOL_DEFINITIONS, WRITING_TOOLS,
     ToolRunner, canonical_tool_name, clean_generated_text, vault_overview,
 )
-from ..vault import IMAGE_EXT, VaultError, create_unique_file, read_text_file, require_root, write_text_file
+from ..vault import (
+    IMAGE_EXT, VaultError, create_unique_file, read_text_file, require_root, safe_join,
+    to_relative, write_text_file,
+)
 from ..vault_guide import ensure_vault_guide, guide_context
 from ..workflow import analyse_request, note_title, simple_attachment_archive, simple_root_note
 from ..vault_actions import VaultAction, active_action, vault_lock, last_action, undo_last, vault_io
 from ..write_preview import pending as pending_previews, reviewed_call, PreviewCancelled
+from ..i18n import bt, language_rule, localize
 from ..vision_batch import VisionBatch, model_lock
 from ..source_notes import save_source_note, has_visual_content
 from ..context_focus import VaultFocus, resolve_focus
@@ -41,6 +45,12 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chats", tags=["chat"])
 
 MAX_TITLE_LENGTH = 60
+
+# Marker in gespeicherten Antworten (beide Oberflächensprachen).
+_UNDONE_MARKS = ('rückgängig gemacht', 'was undone')
+_INTERRUPTED_MARKS = ('Antwort unterbrochen', 'Answer interrupted')
+_PLACEHOLDER_TITLES = ('', 'Neuer Chat', 'Neuer Wissens-Chat', 'Neue Frage',
+                       'New chat', 'New knowledge chat', 'New question')
 MAX_FOLDER_NAME = 60
 
 # Werkzeugrunden je Antwort. Wer 50 Dateien anhängt, braucht auch 50+ Runden;
@@ -100,6 +110,8 @@ class MessageRequest(BaseModel):
     source_notes: Optional[bool] = None
     variants: bool = False
     variant_base: Optional[Dict[str, int]] = None
+    # Suchbereich: vault-relativer Ordner; leer = alle Ordner. Unterordner zählen mit.
+    scope: Optional[str] = None
 
 
 class PreviewDecision(BaseModel):
@@ -129,8 +141,7 @@ async def undo_vault_action():
         database = current_db(profile)
         if database.get_chat(result['chat_id']):
             database.add_message(result['chat_id'], 'assistant',
-                'Der letzte Vault-Auftrag wurde rückgängig gemacht. Zurückgesetzte Dateien: '
-                + ', '.join(result['paths']))
+                bt('undo.message', paths=', '.join(result['paths'])))
     return result
 
 
@@ -158,8 +169,7 @@ async def apply_variant(chat_id: str, request: VariantApply):
         if overwrite:
             current = read_text_file(root, path)['content']
             if _digest(current) != result.get('vorher_hash'):
-                raise ValueError('Die Notiz wurde seit dem Erstellen der Varianten geändert. '
-                                 'Bitte Varianten neu erstellen, damit keine Änderung verloren geht.')
+                raise ValueError(bt('variants.conflict'))
             return write_text_file(root, path, content, overwrite=True)['path']
         return create_unique_file(root, path, lambda out: out.write(content.encode('utf-8')))
 
@@ -187,8 +197,8 @@ async def apply_variant(chat_id: str, request: VariantApply):
         if item.get('tool') == 'varianten':
             item['result']['uebernommen'] = saved_path
     database.update_message(request.message_id, sources=row['sources'])
-    title = variants[request.index].get('titel', f'Variante {request.index + 1}')
-    database.add_message(chat_id, 'assistant', f'{title} übernommen: [[{saved_path[:-3]}]]',
+    title = _variant_title(variants, request.index)
+    database.add_message(chat_id, 'assistant', bt('variants.applied', title=title, path=saved_path[:-3]),
                          sources=[{'tool': 'notiz_bearbeiten' if overwrite else 'notiz_erstellen',
                                    'arguments': {'pfad': saved_path}, 'writing': True, 'ok': True,
                                    'result': {'bearbeitet' if overwrite else 'erstellt': saved_path}}])
@@ -369,9 +379,9 @@ async def send_message(chat_id: str, request: MessageRequest) -> StreamingRespon
             database = response._database
             try:
                 result = await vault_io(action.rollback) if action else {'paths': []}
-                text = str(exc) + (' Bereits ausgeführte Dateiänderungen wurden zurückgenommen.' if result['paths'] else '')
+                text = localize(str(exc)) + (bt('preview.rolledBack') if result['paths'] else '')
             except (ValueError, OSError, VaultError) as conflict:
-                text = f'{exc} Rücknahme nicht möglich: {conflict}. Bereits ausgeführte Änderungen bleiben erhalten.'
+                text = bt('preview.rollbackFailed', text=localize(str(exc)), error=localize(str(conflict)))
             rows = database.list_messages(chat_id)
             if rows and rows[-1]['role'] == 'assistant':
                 database.update_message(rows[-1]['id'], content=text, sources=[])
@@ -479,7 +489,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             for previous_answer in reversed(database.list_messages(chat_id)):
                 if previous_answer['role'] != 'assistant':
                     continue
-                if 'rückgängig gemacht' in previous_answer['content']:
+                if any(mark in previous_answer['content'] for mark in _UNDONE_MARKS):
                     break
                 paths = list(dict.fromkeys(
                     path for step in previous_answer.get('sources') or [] if step.get('ok')
@@ -488,6 +498,12 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                 if paths:
                     focus = VaultFocus(tuple(paths)) if len(paths) == 1 else VaultFocus((), ('Letzte Notizen: ' + ', '.join(paths),))
                     break
+    scope_path = _scope_path(root, request.scope) if root and not direct else ''
+    if scope_path:
+        # Der gewählte Ordner begrenzt die Suche; ausdrücklich genannte Dateien bleiben erlaubt.
+        named = tuple(path for path in ((focus.paths or ()) if focus else ())
+                      if not path.casefold().startswith(scope_path.casefold()))
+        focus = VaultFocus((scope_path,) + named, focus.ambiguous if focus else ())
     requirements = analyse_request(
         task_content,
         (item["name"] for item in vorhandene_anhaenge),
@@ -635,7 +651,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
     )
 
     # Ersten Nutzertext als Chattitel übernehmen, solange noch keiner gesetzt ist.
-    if chat["title"] in ("", "Neuer Chat", "Neuer Wissens-Chat", "Neue Frage") \
+    if chat["title"] in _PLACEHOLDER_TITLES \
             and request.content.strip():
         database.rename_chat(chat_id, _title_from(request.content))
 
@@ -655,6 +671,8 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
         )
     if question_mode and focus and focus.paths is not None:
         system_prompt += '\n\n' + focus.instruction()
+    if language_rule():
+        system_prompt += '\n\n' + language_rule()
     # Kein Hinweistext mehr noetig: Die Inhalte werden unten vorab ausgewertet
     # und direkt in den Verlauf gestellt.
     history_error = ""
@@ -714,7 +732,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             nonlocal saved, last_checkpoint
             text = "".join(content_parts)
             if not text and not completed:
-                text = "Bearbeitung noch nicht abgeschlossen. Gespeicherte Arbeitsnotizen und Aktionen können im selben Chat fortgesetzt werden."
+                text = bt("work.unfinished")
             if reason:
                 text = (text.rstrip() + "\n\n" + _work_status(runner, reason)).strip()
             if force or time.monotonic() - last_checkpoint >= 2:
@@ -743,7 +761,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                         result = reviewed['result']
                 database.set_meta(pending_key, json.dumps(result.get('plan')) if result.get('needs_input') else 'null')
                 result.pop('plan', None)
-                content_parts.append(result['message'])
+                content_parts.append(localize(result['message']))
                 step = {'tool': 'datei_direkt', 'arguments': {'action': file_action.action, 'pfad': file_action.file},
                         'result': result, 'writing': file_action.action != 'find', 'ok': not result.get('needs_input')}
                 steps.append(step)
@@ -762,7 +780,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                         await vault_io(action.rollback)
                         runner.changed_files.clear()
                     except (VaultError, OSError, ValueError) as rollback_error:
-                        content_parts.append(f'Rücknahme fehlgeschlagen: {rollback_error}. ')
+                        content_parts.append(bt('work.rollbackFailed', error=rollback_error))
                 completed = True
                 content_parts.append(str(exc))
                 yield _sse({'type': 'error', 'kind': 'file_action', 'message': persist()})
@@ -773,7 +791,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     from ..tools import invalidate_overview
                     invalidate_overview(root)
                 if not completed:
-                    persist('Dateiauftrag unterbrochen; bestätigte Änderungen bleiben rücknehmbar.')
+                    persist(bt('work.fileTaskInterrupted'))
             return
         if direct_archive is not None and runner:
             try:
@@ -789,9 +807,9 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     steps.append(step)
                     if step["ok"]:
                         await asyncio.to_thread(attachments.mark_used, chat_id, [item["name"]])
-                        content_parts.append(f"Abgelegt: {result['einbetten_als']}\n")
+                        content_parts.append(bt('work.stored', embed=result['einbetten_als']) + "\n")
                     else:
-                        content_parts.append(f"Nicht abgelegt: {item['name']} — {result['fehler']}\n")
+                        content_parts.append(bt('work.notStored', name=item['name'], error=localize(result['fehler'])) + "\n")
                     persist()
                     yield _sse({"type": "tool_result", **step})
                 completed = True
@@ -836,7 +854,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                     "semantic": rag_result.get("semantic", False),
                 })
             except asyncio.CancelledError:
-                persist("Wissenssuche unterbrochen; noch keine neuen Dateiaktionen ausgeführt.")
+                persist(bt("work.searchInterrupted"))
                 raise
             except Exception as exc:
                 # RAG ist eine Qualitätsverbesserung; Chat und Werkzeugzugriff
@@ -923,19 +941,19 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                                     _append_to_latest_user(history, 'Bild-/Scanwissen bereits suchbar gespeichert: [[' + result['quellennotiz'] + ']].')
 
         except (asyncio.CancelledError, GeneratorExit):
-            persist("Auswertung unterbrochen. Bereits gelesene Dateien und Seiten sind zwischengespeichert; beim Fortsetzen werden sie wiederverwendet.")
+            persist(bt("work.analysisInterrupted"))
             raise
         except PreviewCancelled:
             raise
         except Exception as exc:
-            content = persist(f"Auswertung konnte nicht abgeschlossen werden: {exc}")
+            content = persist(bt("work.analysisFailed", error=localize(str(exc))))
             yield _sse({"type": "error", "message": content, "kind": "analysis"})
             return
 
         if rag_result.get("results"):
             rag_step = {
                 "tool": "wissenssuche",
-                "arguments": {"query": request.content},
+                "arguments": {"query": request.content, "bereich": scope_path.rstrip('/')},
                 "result": {
                     "anzahl": len(rag_result["results"]),
                     "semantisch": rag_result.get("semantic", False),
@@ -952,18 +970,16 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
 
         vault_hits = rag_result.get("results") or []
         if question_mode and not vault_hits:
-            # Die Kennzeichnung setzt der Code, nicht das Modell: So ist immer
-            # eindeutig, ob die Antwort aus dem eigenen Wissen stammt.
-            if root is not None:
-                empty_step = {"tool": "wissenssuche", "arguments": {"query": request.content},
-                              "result": {"anzahl": 0, "hinweis": "Kein passender Eintrag im Vault"},
-                              "writing": False, "ok": True}
-                steps.append(empty_step)
-                yield _sse({"type": "tool_result", **empty_step})
-            label = NO_VAULT_HIT_LABEL + "\n\n"
-            content_parts.append(label)
-            yield _sse({"type": "content", "delta": label})
+            # Die Kennzeichnung erzeugt ausschließlich die Oberfläche aus diesem Schritt
+            # (kein_treffer). Sie ist weder Teil der Modellantwort noch des Prompts.
+            empty_step = {"tool": "wissenssuche",
+                          "arguments": {"query": request.content, "bereich": scope_path.rstrip('/')},
+                          "result": {"anzahl": 0, "kein_treffer": True},
+                          "writing": False, "ok": True}
+            steps.append(empty_step)
+            yield _sse({"type": "tool_result", **empty_step})
             _append_to_latest_user(history, NO_VAULT_HIT_INSTRUCTION)
+        hint_filter = LeadingHintFilter(question_mode and not vault_hits)
 
         if variant_mode:
             if variant_base:
@@ -995,10 +1011,10 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             except OllamaError as exc:
                 completed = True
                 yield _sse({"type": "error", "kind": exc.kind,
-                            "message": persist(f"Variantenerstellung unterbrochen: {exc.message}")})
+                            "message": persist(bt("work.variantsInterrupted", error=localize(exc.message)))})
                 return
             except (asyncio.CancelledError, GeneratorExit):
-                persist("Variantenerstellung unterbrochen. Es wurde nichts gespeichert.")
+                persist(bt("work.variantsCancelled"))
                 raise
             step = {"tool": "varianten", "arguments": {"pfad": target_path}, "writing": False,
                     "ok": all(item["inhalt"].strip() for item in variants),
@@ -1006,9 +1022,9 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                                "vorher_hash": before_hash, "varianten": variants}}
             steps.append(step)
             yield _sse({"type": "tool_result", **step})
-            summary = (f"Überarbeitete Fassung für `{target_path}` erstellt." if variant_base
-                       else f"{len(variants)} Varianten für `{target_path}` erstellt.")
-            summary += " Noch nichts gespeichert: Variante wählen und übernehmen oder ändern."
+            summary = (bt("variants.summaryRefined", path=target_path) if variant_base
+                       else bt("variants.summaryMany", n=len(variants), path=target_path))
+            summary += bt("variants.notSaved")
             content_parts.append(summary)
             yield _sse({"type": "content", "delta": summary})
             completed = True
@@ -1028,7 +1044,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                         "result": result, "writing": True, "ok": "fehler" not in result}
                 steps.append(step)
                 yield _sse({"type": "tool_result", **step})
-                content_parts.append(result.get("fehler") or f"Datei erstellt: [[{result['erstellt']}]]")
+                content_parts.append(localize(result.get("fehler")) or bt("work.fileCreated", path=result['erstellt']))
                 content = persist()
                 completed = True
                 yield _sse({"type": "done", "message_id": assistant["id"],
@@ -1088,13 +1104,19 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                         # wenn die verlangten Vault-Aktionen nachweislich erfolgt
                         # sind oder das Sicherheitsnetz sie ausgeführt hat.
                         if not requirements.actionable or runner is None:
-                            content_parts.append(delta)
-                            yield _sse({"type": "content", "delta": delta})
+                            shown = hint_filter.feed(delta)
+                            if shown:
+                                content_parts.append(shown)
+                                yield _sse({"type": "content", "delta": shown})
                     for call in message.get("tool_calls") or []:
                         tool_calls.append(call)
                     if chunk.get("done"):
                         round_done_reason = str(chunk.get("done_reason") or "")
                         break
+                shown = hint_filter.flush()
+                if shown:
+                    content_parts.append(shown)
+                    yield _sse({"type": "content", "delta": shown})
 
                 if not tool_calls or runner is None:
                     draft = "".join(round_content).strip()
@@ -1108,7 +1130,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                                 "Führe jetzt die angeforderten Werkzeuge aus oder erkläre konkret, "
                                 "was erledigt ist und was noch fehlt. Kein weiterer Gedankengang."})
                             continue
-                        content_parts.append(_work_status(runner, "Das Modell hat keine abschließende Antwort geliefert."))
+                        content_parts.append(_work_status(runner, bt("work.noFinalAnswer")))
                         break
 
                     if runner is not None and requirements.actionable:
@@ -1338,26 +1360,26 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
                 content_parts.append("\n\n" + confirmation)
                 yield _sse({"type": "content", "delta": "\n\n" + confirmation})
             if question_mode:
-                answer = _without_repeated_label("".join(content_parts))
+                answer = "".join(content_parts)
                 sources = _source_links(answer, vault_hits) if vault_hits else ""
                 if sources:
                     answer = answer.rstrip() + "\n\n" + sources
                     yield _sse({"type": "content", "delta": "\n\n" + sources})
                 content_parts[:] = [answer]
             if not "".join(content_parts).strip():
-                content_parts.append(_work_status(runner, "Keine abschließende Modellantwort erhalten."))
+                content_parts.append(_work_status(runner, bt("work.noFinalAnswer2")))
             completed = True
         except PreviewCancelled:
             raise
         except OllamaError as exc:
-            content = persist(f"Modellantwort unterbrochen: {exc.message}")
+            content = persist(bt("work.modelInterrupted", error=localize(exc.message)))
             saved = True
             completed = True
             yield _sse({"type": "error", "message": content, "kind": exc.kind})
             return
         except Exception as exc:  # defensiv: Stream darf die App nie abstürzen lassen
             log.exception("Unerwarteter Fehler im Chatstream")
-            content = persist(f"Bearbeitung unterbrochen: {exc}")
+            content = persist(bt("work.processingInterrupted", error=localize(str(exc))))
             completed = True
             yield _sse({"type": "error", "message": content, "kind": "error"})
             return
@@ -1367,7 +1389,7 @@ async def _prepare_message(chat_id: str, request: MessageRequest) -> StreamingRe
             # Greift nur bei echtem Abbruch — etwa wenn der Browser die
             # Verbindung trennt (Neuladen, Fenster geschlossen).
             if not completed:
-                persist("Antwort unterbrochen. Gespeicherte Arbeitsnotizen und bestätigte Aktionen bleiben für die nächste Nachricht erhalten.")
+                persist(bt("work.answerInterrupted"))
                 log.info("Chatstream abgebrochen — Zwischenstand gesichert (%d Zeichen).",
                          len("".join(content_parts)))
 
@@ -1418,6 +1440,15 @@ VARIANT_SYSTEM = (
 )
 
 
+def _variant_title(variants: List[dict], index: int) -> str:
+    """Titel einer Variante in der Sprache der Oberfläche."""
+    if len(variants) == 3:
+        return bt(("variants.strict", "variants.structured", "variants.extended")[index])
+    if len(variants) == 1:
+        return bt("variants.refined")
+    return variants[index].get("titel") or f"{index + 1}"
+
+
 class VariantBase(BaseModel):
     message_id: int
     index: int
@@ -1457,7 +1488,7 @@ def _variant_step(database, chat_id: str, message_id: int) -> dict:
 def _variant_messages(style: str, guide: str, material: str, target: str,
                       existing: Optional[str], base: str = "", wish: str = "") -> List[dict]:
     system = "\n\n".join(filter(None, (
-        VARIANT_SYSTEM, style, MARKDOWN_INSTRUCTIONS, STRUCTURE_INSTRUCTIONS,
+        VARIANT_SYSTEM, style, MARKDOWN_INSTRUCTIONS, STRUCTURE_INSTRUCTIONS, language_rule(),
         ("REGELN AUS '00 Inhalt.md':\n" + guide[:4000]) if guide else "")))
     if base:
         user = f"ZU ÜBERARBEITENDE FASSUNG für `{target}`:\n{base}\n\nÄNDERUNGSWUNSCH:\n{wish}"
@@ -1527,7 +1558,21 @@ def _anhang_kontext(items: List[dict], cache: dict) -> str:
     )
 
 
+def _scope_path(root: Optional[Path], scope: Optional[str]) -> str:
+    """Normalisierter Ordner mit abschließendem Schrägstrich oder '' (alle Ordner)."""
+    value = (scope or '').replace(chr(92), '/').strip().strip('/')
+    if not value or root is None:
+        return ''
+    try:
+        target = safe_join(root, value)
+    except VaultError:
+        return ''
+    return to_relative(root, target) + '/' if target.is_dir() and target != root else ''
+
+
 def _sse(payload: dict) -> str:
+    if isinstance(payload.get("message"), str):
+        payload = {**payload, "message": localize(payload["message"])}
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
@@ -1535,21 +1580,20 @@ def _title_from(text: str) -> str:
     title = " ".join(text.strip().split())
     if len(title) > MAX_TITLE_LENGTH:
         title = title[:MAX_TITLE_LENGTH].rsplit(" ", 1)[0] + "…"
-    return title or "Neuer Chat"
+    return title or bt("chat.new")
 
 
 def _work_status(runner, reason: str) -> str:
     paths = runner.changed_files if runner else []
-    return reason + "\n\n" + (_change_confirmation(paths) if paths else
-        "In diesem Durchlauf wurde noch keine Vault-Datei erstellt oder geändert.")
+    return reason + "\n\n" + (_change_confirmation(paths) if paths else bt("work.noFileYet"))
 
 
 def _change_confirmation(paths: List[str]) -> str:
     if not paths:
-        return "Der angeforderte Vault-Auftrag konnte nicht vollständig ausgeführt werden."
+        return bt("work.notFullyDone")
     if len(paths) == 1:
-        return f"Im Vault gespeichert: `{paths[0]}`"
-    return "Im Vault gespeichert:\n" + "\n".join(f"- `{path}`" for path in paths)
+        return bt("work.savedOne", path=paths[0])
+    return bt("work.savedMany") + "\n" + "\n".join(f"- `{path}`" for path in paths)
 
 
 def _batch_confirmation(steps: List[dict]) -> str:
@@ -1563,36 +1607,34 @@ def _batch_confirmation(steps: List[dict]) -> str:
                 break
 
     if not result:
-        return "Der globale Vault-Auftrag wurde ausgeführt."
+        return bt("work.globalDone")
 
     operations = result.get("operationen") or []
     operation_labels = []
     if "remove_emojis" in operations:
-        operation_labels.append("Emojis entfernt")
+        operation_labels.append(bt("batch.emojis"))
     if "fix_relative_links" in operations:
-        operation_labels.append(
-            "relative Links und Ordner-WikiLinks auf vorhandene Notizen normalisiert"
-        )
+        operation_labels.append(bt("batch.links"))
 
     checked = int(result.get("geprueft") or 0)
     changed = int(result.get("geaendert") or 0)
     unchanged = int(result.get("unveraendert") or 0)
     lines = [
-        f"Fertig. Alle {checked} Markdown-Dateien im beauftragten Umfang wurden geprüft.",
+        bt("batch.done", n=checked),
         "",
-        f"- Geändert: {changed}",
-        f"- Unverändert: {unchanged}",
+        f"- {bt('batch.changed', n=changed)}",
+        f"- {bt('batch.unchanged', n=unchanged)}",
     ]
     if operation_labels:
-        lines.append(f"- Ausgeführt: {'; '.join(operation_labels)}")
+        lines.append(f"- {bt('batch.executed', ops='; '.join(operation_labels))}")
 
     paths = result.get("geaenderte_dateien") or []
     if paths:
-        lines.extend(["", "Bearbeitete Dateien:"])
+        lines.extend(["", bt("batch.files")])
         lines.extend(f"- `{path}`" for path in paths)
 
     unresolved = result.get("nicht_aufloesbare_links") or []
-    lines.extend(["", f"Nicht auflösbare Links: {len(unresolved)}"])
+    lines.extend(["", bt("batch.unresolved", n=len(unresolved))])
     if unresolved:
         lines.extend(f"- `{item}`" for item in unresolved)
     return "\n".join(lines)
@@ -1615,25 +1657,22 @@ def _organization_confirmation(steps: List[dict]) -> str:
     folder = str(result.get("unterordner") or "Dateien")
     changed_notes = result.get("geaenderte_notizen") or []
     lines = [
-        f"Fertig. {checked} PDF-, Dokument- und Bilddateien wurden geprüft.",
+        bt("org.done", n=checked),
         "",
-        f"- In den Unterordner `{folder}` verschoben: {moved}",
-        f"- Bereits passend eingeordnet: {already}",
-        f"- Notizen mit aktualisierten Links: {len(changed_notes)}",
+        f"- {bt('org.moved', folder=folder, n=moved)}",
+        f"- {bt('org.already', n=already)}",
+        f"- {bt('org.notes', n=len(changed_notes))}",
     ]
     moved_items = result.get("verschoben") or []
     if moved_items:
-        lines.extend(["", "Neue Vault-Pfade:"])
+        lines.extend(["", bt("org.newPaths")])
         lines.extend(
             f"- `{item.get('alter_pfad', '')}` → `{item.get('neuer_pfad', '')}`"
             for item in moved_items
         )
     guide = result.get("hauptseite") or {}
     if guide.get("updated"):
-        lines.extend([
-            "",
-            f"Die dauerhafte Ablageregel wurde außerdem in `{guide.get('path')}` ergänzt.",
-        ])
+        lines.extend(["", bt("org.rule", path=guide.get("path"))])
     return "\n".join(lines)
 
 
@@ -1698,19 +1737,12 @@ def _continuation_instruction(done_reason: str = "") -> str:
 
 def _incomplete_confirmation(missing: List[str]) -> str:
     if "organize_files" in missing:
-        return (
-            "Die verlangte Dateiordnung konnte trotz der automatischen Fortsetzung "
-            "nicht vollständig ausgeführt werden. Es wurden keine unbestätigten "
-            "Ersatzänderungen vorgenommen."
-        )
+        return bt("work.organizeIncomplete")
     if "batch_edit" in missing:
-        return "Die globale Vault-Bearbeitung konnte nicht vollständig abgeschlossen werden."
+        return bt("work.batchIncomplete")
     if "edit" in missing:
-        return (
-            "Die bestehende Notiz wurde nicht pauschal überschrieben, weil die "
-            "verlangte Änderung nicht sicher genug abgegrenzt werden konnte."
-        )
-    return "Der angeforderte Vault-Auftrag konnte nicht vollständig ausgeführt werden."
+        return bt("work.editIncomplete")
+    return bt("work.notFullyDone")
 
 
 def _append_to_latest_user(history: List[Dict[str, Any]], context: str) -> None:
@@ -1796,21 +1828,55 @@ ANSWER_RULES = (
     "Begriffe als kurze Definition. Kein unnötiger Fließtext."
 )
 
-NO_VAULT_HIT_LABEL = "Kein Eintrag gefunden – KI-Wissen:"
 NO_VAULT_HIT_INSTRUCTION = (
     "HINWEIS DER ANWENDUNG: Im lokalen Vault gibt es zu dieser Frage keinen passenden Eintrag. "
-    "Antworte direkt aus allgemeinem Wissen. Die Kennzeichnung '" + NO_VAULT_HIT_LABEL + "' steht "
-    "bereits vor deiner Antwort; wiederhole sie nicht und nenne keine Vault-Quellen."
+    "Antworte direkt aus allgemeinem Wissen, ohne Vorbemerkung über fehlende Einträge und ohne "
+    "Vault-Quellen. Die Anwendung kennzeichnet die Antwort selbst."
+)
+
+# Hinweiszeilen, die ein Modell trotzdem selbst voranstellt ("Kein Eintrag gefunden – KI-Wissen:").
+_LEADING_HINT = re.compile(
+    r"^[\s*_>#-]*(?:"
+    r"kein[^:\n]{0,80}?wissen|no\b[^:\n]{0,80}?knowledge|"
+    r"kein\w*\s+(?:passende\w*\s+)?(?:eintr\w+|treffer)[^:\n.!?]{0,60}|"
+    r"no\s+(?:matching\s+)?(?:entr\w+|match\w*)[^:\n.!?]{0,60}"
+    r")[\s*_]*[:.–—-]?[\s*_]*",
+    re.IGNORECASE,
 )
 
 
-def _without_repeated_label(text: str) -> str:
-    """Das Modell wiederholt die vorangestellte Kennzeichnung gelegentlich."""
-    head, _, rest = text.partition("\n\n")
-    if head != NO_VAULT_HIT_LABEL:
+def strip_leading_hint(text: str) -> str:
+    """Entfernt eine vom Modell selbst geschriebene Kein-Eintrag-Zeile am Antwortanfang."""
+    for _ in range(2):
+        match = _LEADING_HINT.match(text)
+        if not match:
+            break
+        text = text[match.end():]
+    return text.lstrip()
+
+
+class LeadingHintFilter:
+    """Hält den Antwortanfang kurz zurück, um eine doppelte Kennzeichnung zu entfernen."""
+
+    def __init__(self, enabled: bool):
+        self.buffer = ""
+        self.done = not enabled
+
+    def feed(self, delta: str) -> str:
+        if self.done:
+            return delta
+        self.buffer += delta
+        body = self.buffer.lstrip()
+        if "\n" in body or len(body) > 160:
+            return self.flush()
+        return ""
+
+    def flush(self) -> str:
+        if self.done:
+            return ""
+        self.done = True
+        text, self.buffer = strip_leading_hint(self.buffer), ""
         return text
-    body = re.sub(r"^\s*\**\s*kein eintrag gefunden\s*[–-]\s*ki-wissen:?\s*\**\s*", "", rest, flags=re.I)
-    return head + "\n\n" + body
 
 
 def _source_links(text: str, results: List[dict]) -> str:
@@ -1826,7 +1892,7 @@ def _source_links(text: str, results: List[dict]) -> str:
         if target in cited or target.rsplit("/", 1)[-1] in cited:
             return ""
     links = [f"[[{path[:-3] if path.lower().endswith('.md') else path}]]" for path in paths[:5]]
-    return ("Quellen: " + " · ".join(links)) if links else ""
+    return (bt("sources") + ": " + " · ".join(links)) if links else ""
 
 
 async def _batch_analyse(events, batch):
@@ -1871,10 +1937,10 @@ def _build_history(database, chat_id: str, system_prompt: str,
                     relevant.append(step)
             # Prior assistant source excerpts are not current user information.
             if not relevant:
-                if 'rückgängig gemacht' in row['content']:
-                    messages.append({'role': 'assistant', 'content': 'Der letzte Vault-Auftrag wurde rückgängig gemacht.'})
-                elif 'Antwort unterbrochen' in row['content']:
-                    messages.append({'role': 'assistant', 'content': 'Antwort unterbrochen. Gespeicherte Arbeitsnotizen bei Bedarf gezielt laden.'})
+                if any(mark in row['content'] for mark in _UNDONE_MARKS):
+                    messages.append({'role': 'assistant', 'content': bt('undo.history')})
+                elif any(mark in row['content'] for mark in _INTERRUPTED_MARKS):
+                    messages.append({'role': 'assistant', 'content': bt('history.interrupted')})
                 continue
             row = {**row, 'content': '', 'sources': relevant}
         message: Dict[str, Any] = {"role": row["role"], "content": row["content"]}
@@ -1905,15 +1971,7 @@ def _build_history(database, chat_id: str, system_prompt: str,
     if preserve_user_inputs:
         input_chars = sum(len(m["content"]) for m in messages if m["role"] == "user")
         if input_chars > max_chars:
-            raise UserInputContextTooLarge(
-                f"Die Nutzereingaben dieses Chats umfassen {input_chars:,} Zeichen und "
-                f"überschreiten das aktuelle Eingabebudget von {max_chars:,} Zeichen. "
-                "Alle Eingaben bleiben vollständig im Chat gespeichert. Es wurden keine "
-                "Nutzerangaben stillschweigend weggelassen und keine neuen Dateiaktionen ausgeführt. "
-                "Erhöhe die Kontextgröße in den KI-Einstellungen und sende anschließend ‚weiter‘. "
-                "Falls das Modell keinen größeren Kontext unterstützt, müssen wir den Auftrag "
-                "ausdrücklich in kleinere Teile aufteilen."
-            )
+            raise UserInputContextTooLarge(bt('context.full', chars=input_chars, budget=max_chars))
         remaining = max_chars - input_chars
         keep = set()
         for index in range(len(messages) - 1, -1, -1):

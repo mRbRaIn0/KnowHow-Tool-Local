@@ -1,7 +1,8 @@
 // Übersicht: Systemzustand, Kennzahlen, letzte Notizen und Chats.
 
 import { api, streamPost } from '../api.js';
-import { fmtDate, fmtNumber, h, icon, openModal, toast } from '../util.js';
+import { t } from '../i18n.js';
+import { fill, fmtDate, fmtNumber, h, icon, kv, openModal, toast } from '../util.js';
 import { navigate, refreshFileIndex, refreshStatus, state, vaultReady } from '../store.js';
 
 export async function mount({ el }) {
@@ -15,11 +16,11 @@ function render(view) {
   const status = state.status;
   view.replaceChildren(
     h('div', { class: 'page-head' },
-      h('span', { class: 'label', text: 'Übersicht' }),
+      h('span', { class: 'label', text: t('nav.dashboard') }),
       h('h1', { text: greeting() }),
       h('p', { text: status?.vault?.ok
-        ? `Vault ${status.vault.name} · Profil ${status.profile.name}`
-        : 'Wähle zuerst einen Vault aus, dann steht dir dein Wissen hier zur Verfügung.' })),
+        ? t('dash.vaultProfile', { vault: status.vault.name, profile: status.profile.name })
+        : t('dash.chooseVaultFirst') })),
     ...problems(view),
     statStrip(),
     quickActions(),
@@ -32,10 +33,10 @@ function render(view) {
 
 function greeting() {
   const hour = new Date().getHours();
-  if (hour < 5) return 'Noch wach.';
-  if (hour < 11) return 'Guten Morgen.';
-  if (hour < 18) return 'Guten Tag.';
-  return 'Guten Abend.';
+  if (hour < 5) return t('dash.greetingNight');
+  if (hour < 11) return t('dash.greetingMorning');
+  if (hour < 18) return t('dash.greetingDay');
+  return t('dash.greetingEvening');
 }
 
 /* ------------------------------------------------------- Probleme */
@@ -44,32 +45,32 @@ function problems(view) {
   const status = state.status;
   const items = [];
   if (!status) {
-    items.push(notice('bad', 'Kein Backend', 'Die lokale Anwendung antwortet nicht. Starte sie neu.', []));
+    items.push(notice('bad', t('dash.noBackend'), t('dash.noBackendText'), []));
     return items;
   }
 
   if (!status.ollama.online) {
-    items.push(notice('bad', 'Ollama ist nicht erreichbar',
-      `Unter ${status.ollama.base_url} antwortet kein Dienst.`, [
-        { label: 'Erneut versuchen', onClick: () => reloadDashboard(view) },
-        { label: 'Ollama starten', variant: 'primary', onClick: () => startOllama(view) },
+    items.push(notice('bad', t('dash.ollamaDown'),
+      t('dash.ollamaDownText', { url: status.ollama.base_url }), [
+        { label: t('dash.retry'), onClick: () => reloadDashboard(view) },
+        { label: t('dash.startOllama'), variant: 'primary', onClick: () => startOllama(view) },
       ]));
   } else if (!status.model.installed) {
-    items.push(notice('warn', `${status.model.name} ist nicht installiert`,
-      'Das eingestellte Chat-Modell fehlt in Ollama. Du kannst es jetzt herunterladen.', [
-        { label: 'Modell herunterladen', variant: 'primary', onClick: () => pullModel(status.model.name, view) },
-        { label: 'Anderes Modell wählen', onClick: () => navigate('/settings') },
+    items.push(notice('warn', t('dash.modelMissing', { name: status.model.name }),
+      t('dash.modelMissingText'), [
+        { label: t('dash.downloadModel'), variant: 'primary', onClick: () => pullModel(status.model.name, view) },
+        { label: t('dash.otherModel'), onClick: () => navigate('/settings') },
       ]));
   }
 
   if (!status.vault.ok) {
     const dataHint = !(status.counts?.chats)
-      ? ` Verlauf und Einstellungen liegen in „${status.paths?.data_dir || 'data'}“ neben der EXE. Eine neue Version in denselben Ordner legen und diesen data-Ordner behalten.`
+      ? ` ${t('dash.dataHint', { folder: status.paths?.data_dir || 'data' })}`
       : '';
-    items.push(notice('warn', 'Kein Vault ausgewählt',
-      (status.vault.error || 'Wähle den Ordner deines Obsidian-Vaults aus.') + dataHint, [
-        { label: 'Ordner auswählen', variant: 'primary', onClick: () => chooseVault(view) },
-        { label: 'Einstellungen öffnen', onClick: () => navigate('/settings') },
+    items.push(notice('warn', t('common.noVault'),
+      (status.vault.error || t('dash.chooseVaultText')) + dataHint, [
+        { label: t('dash.chooseFolder'), variant: 'primary', onClick: () => chooseVault(view) },
+        { label: t('dash.openSettings'), onClick: () => navigate('/settings') },
       ]));
   }
   return items;
@@ -96,7 +97,7 @@ async function reloadDashboard(view) {
 }
 
 async function startOllama(view) {
-  toast('Ollama wird gestartet …');
+  toast(t('dash.ollamaStarting'));
   try {
     const result = await api.startOllama();
     toast(result.message, result.online ? 'ok' : 'info');
@@ -111,7 +112,7 @@ export async function chooseVault(view) {
     const picked = await api.browseFolder();
     if (picked.cancelled) return;
     await api.updateProfile(state.status.profile.id, { vault: { path: picked.path } });
-    toast(`Vault gesetzt: ${picked.path}`, 'ok');
+    toast(t('dash.vaultSet', { path: picked.path }), 'ok');
     await refreshStatus();
     await refreshFileIndex();
     if (view) render(view);
@@ -122,12 +123,12 @@ export async function chooseVault(view) {
 
 export function pullModel(name, view) {
   const bar = h('div', { class: 'progress__bar' });
-  const line = h('p', { text: 'Download wird vorbereitet …', style: 'margin:10px 0 0;color:var(--text-2);font-size:.8125rem' });
+  const line = h('p', { text: t('dash.pullPreparing'), style: 'margin:10px 0 0;color:var(--text-2);font-size:.8125rem' });
   const { close } = openModal({
-    title: `${name} herunterladen`,
-    description: 'Ollama lädt das Modell direkt von der Modellquelle. Das ist der einzige Vorgang, der eine Internetverbindung benötigt.',
+    title: t('dash.pullTitle', { name }),
+    description: t('dash.pullDescription'),
     body: h('div', {}, h('div', { class: 'progress' }, bar), line),
-    actions: [{ label: 'Im Hintergrund weiterlaufen lassen', onClick: (c) => c() }],
+    actions: [{ label: t('dash.pullBackground'), onClick: (c) => c() }],
   });
 
   streamPost('/api/system/pull', { model: name }, {
@@ -143,12 +144,12 @@ export function pullModel(name, view) {
         bar.style.width = `${percent}%`;
         line.textContent = `${text} — ${percent} %`;
       } else {
-        line.textContent = text || 'läuft …';
+        line.textContent = text || t('dash.pullRunning');
       }
       if (event.done) {
         bar.style.width = '100%';
-        line.textContent = 'Fertig.';
-        toast(`${name} wurde installiert.`, 'ok');
+        line.textContent = t('dash.pullDone');
+        toast(t('dash.pullInstalled', { name }), 'ok');
         setTimeout(() => { close(); reloadDashboard(view); }, 700);
       }
     },
@@ -166,8 +167,8 @@ function stat(id, label) {
 
 function statStrip() {
   return h('div', { class: 'stat-strip' },
-    stat('notes', 'Notizen'), stat('docs', 'Dokumente'), stat('images', 'Bilder'),
-    stat('chats', 'Chats'), stat('messages', 'Nachrichten'));
+    stat('notes', t('nav.notes')), stat('docs', t('dash.docs')), stat('images', t('nav.images')),
+    stat('chats', t('dash.chats')), stat('messages', t('dash.messages')));
 }
 
 async function loadStats(view) {
@@ -193,11 +194,11 @@ async function loadStats(view) {
 
 function quickActions() {
   const actions = [
-    { label: 'Wissen erweitern', icon: 'chat', run: newVaultChat },
-    { label: 'Wissen fragen', icon: 'question', run: newAskChat },
-    { label: 'Neue Notiz', icon: 'note', run: () => navigate('/files?new=1') },
-    { label: 'Dateien öffnen', icon: 'files', run: () => navigate('/files') },
-    { label: 'Einstellungen', icon: 'gear', run: () => navigate('/settings') },
+    { label: t('nav.chat'), icon: 'chat', run: newVaultChat },
+    { label: t('nav.ask'), icon: 'question', run: newAskChat },
+    { label: t('dash.newNote'), icon: 'note', run: () => navigate('/files?new=1') },
+    { label: t('dash.openFiles'), icon: 'files', run: () => navigate('/files') },
+    { label: t('nav.settings'), icon: 'gear', run: () => navigate('/settings') },
   ];
   return h('div', { class: 'quick' },
     ...actions.map((action) => h('button', { class: 'btn', onclick: action.run },
@@ -206,7 +207,7 @@ function quickActions() {
 
 async function newVaultChat() {
   try {
-    const chat = await api.createChat('Neuer Wissens-Chat', 'vault');
+    const chat = await api.createChat(t('mode.vault.newTitle'), 'vault');
     navigate(`/chat/${chat.id}`);
   } catch (error) {
     toast(error.message, 'bad');
@@ -215,7 +216,7 @@ async function newVaultChat() {
 
 async function newAskChat() {
   try {
-    const chat = await api.createChat('Neue Frage', 'ask');
+    const chat = await api.createChat(t('mode.ask.newTitle'), 'ask');
     navigate(`/ask/${chat.id}`);
   } catch (error) {
     toast(error.message, 'bad');
@@ -227,23 +228,23 @@ async function newAskChat() {
 function recentNotesCard() {
   return h('div', { class: 'card' },
     h('div', { class: 'card__title' },
-      h('span', { class: 'label', text: 'Zuletzt bearbeitet' }),
-      h('button', { class: 'btn btn--ghost btn--sm', onclick: () => navigate('/files') }, 'Alle')),
+      h('span', { class: 'label', text: t('dash.recentlyEdited') }),
+      h('button', { class: 'btn btn--ghost btn--sm', onclick: () => navigate('/files') }, t('dash.all'))),
     h('div', { class: 'list', id: 'recent-files' },
-      h('p', { class: 'field__hint', text: 'wird geladen …' })));
+      h('p', { class: 'field__hint', text: t('common.loading') })));
 }
 
 async function loadRecent(view) {
   const host = view.querySelector('#recent-files');
   if (!host) return;
   if (!vaultReady()) {
-    host.replaceChildren(h('p', { class: 'field__hint', text: 'Noch kein Vault ausgewählt.' }));
+    host.replaceChildren(h('p', { class: 'field__hint', text: t('status.noVaultYet') }));
     return;
   }
   try {
     const data = await api.recentFiles(7);
     if (!data.files.length) {
-      host.replaceChildren(h('p', { class: 'field__hint', text: 'Der Vault ist noch leer.' }));
+      host.replaceChildren(h('p', { class: 'field__hint', text: t('dash.vaultEmpty') }));
       return;
     }
     host.replaceChildren(...data.files.map((file) => h('button', {
@@ -263,11 +264,11 @@ async function loadRecent(view) {
 function recentChatsCard() {
   return h('div', { class: 'card' },
     h('div', { class: 'card__title' },
-      h('span', { class: 'label', text: 'Letzte Chats' }),
-      h('button', { class: 'btn btn--ghost btn--sm', onclick: () => navigate('/chat') }, 'Erweitern'),
-      h('button', { class: 'btn btn--ghost btn--sm', onclick: () => navigate('/ask') }, 'Fragen')),
+      h('span', { class: 'label', text: t('dash.recentChats') }),
+      h('button', { class: 'btn btn--ghost btn--sm', onclick: () => navigate('/chat') }, t('dash.extend')),
+      h('button', { class: 'btn btn--ghost btn--sm', onclick: () => navigate('/ask') }, t('dash.ask'))),
     h('div', { class: 'list', id: 'recent-chats' },
-      h('p', { class: 'field__hint', text: 'wird geladen …' })));
+      h('p', { class: 'field__hint', text: t('common.loading') })));
 }
 
 async function loadChats(view) {
@@ -277,8 +278,8 @@ async function loadChats(view) {
     const data = await api.listChats();
     if (!data.chats.length) {
       host.replaceChildren(
-        h('p', { class: 'field__hint', text: 'Noch keine Chats.' }),
-        h('button', { class: 'btn btn--sm', style: 'margin-top:8px', onclick: newAskChat }, icon('plus'), 'Erste Frage stellen'));
+        h('p', { class: 'field__hint', text: t('dash.noChats') }),
+        h('button', { class: 'btn btn--sm', style: 'margin-top:8px', onclick: newAskChat }, icon('plus'), t('dash.firstQuestion')));
       return;
     }
     host.replaceChildren(...data.chats.slice(0, 7).map((chat) => h('button', {
@@ -289,7 +290,7 @@ async function loadChats(view) {
       icon(chat.purpose === 'ask' ? 'question' : 'chat'),
       h('span', { class: 'list__main' },
         h('span', { class: 'list__title', text: chat.title }),
-        h('span', { class: 'list__sub', text: `${chat.purpose === 'ask' ? 'Fragen' : 'Erweitern'} · ${chat.message_count} Nachrichten` })),
+        h('span', { class: 'list__sub', text: t('dash.chatMeta', { kind: chat.purpose === 'ask' ? t('dash.ask') : t('dash.extend'), n: chat.message_count }) })),
       h('span', { class: 'list__meta', text: fmtDate(chat.updated_at) }))));
   } catch (error) {
     host.replaceChildren(h('p', { class: 'field__hint', text: error.message }));
@@ -298,42 +299,45 @@ async function loadChats(view) {
 
 /* -------------------------------------------------------- Kontext */
 
+const CAP_KEYS = {
+  completion: 'cap.completion', vision: 'cap.vision', tools: 'cap.tools',
+  thinking: 'cap.thinking', embedding: 'cap.embedding', insert: 'cap.insert',
+};
+
 function renderContext(host) {
   const status = state.status;
   if (!status) return;
   const model = status.model.info;
-  host.replaceChildren(
+  const capabilities = model?.capabilities || [];
+  fill(host,
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Laufzeit' }),
-      h('dl', { class: 'ctx-kv' },
-        h('dt', { text: 'Ollama' }), h('dd', { text: status.ollama.online ? `v${status.ollama.version}` : 'offline' }),
-        h('dt', { text: 'Adresse' }), h('dd', { text: status.ollama.base_url }),
-        h('dt', { text: 'Modell' }), h('dd', { text: status.model.name }),
-        model ? h('dt', { text: 'Größe' }) : null,
-        model ? h('dd', { text: `${model.parameters} · ${model.quantization}` }) : null,
-        model ? h('dt', { text: 'Kontext' }) : null,
-        model ? h('dd', { text: fmtNumber(model.context_length) }) : null,
-        h('dt', { text: 'Embedding' }), h('dd', { text: status.embedding.installed ? status.embedding.name : `${status.embedding.name} (fehlt)` }))),
-    model?.capabilities?.length
+      h('span', { class: 'label', text: t('dash.runtime') }),
+      kv([
+        ['Ollama', status.ollama.online ? `v${status.ollama.version}` : t('status.offline')],
+        [t('dash.address'), status.ollama.base_url],
+        [t('status.model'), status.model.name],
+        [t('dash.size'), model ? [model.parameters, model.quantization].filter(Boolean).join(' · ') : null],
+        [t('dash.context'), model?.context_length ? fmtNumber(model.context_length) : null],
+        [t('dash.embedding'), status.embedding?.name
+          ? (status.embedding.installed ? status.embedding.name : t('dash.embeddingMissing', { name: status.embedding.name })) : null],
+      ])),
+    capabilities.length
       ? h('div', { class: 'ctx-block' },
-        h('span', { class: 'label', text: 'Fähigkeiten' }),
+        h('span', { class: 'label', text: t('dash.capabilities') }),
         h('div', { class: 'row row--wrap' },
-          ...model.capabilities.map((cap) => h('span', { class: 'chip', text: CAP_LABELS[cap] || cap }))))
+          ...capabilities.map((cap) => h('span', { class: 'chip', text: CAP_KEYS[cap] ? t(CAP_KEYS[cap]) : cap }))))
       : null,
     h('div', { class: 'ctx-block' },
-      h('span', { class: 'label', text: 'Datenschutz' }),
-      h('dl', { class: 'ctx-kv' },
-        h('dt', { text: 'Offline' }), h('dd', { text: status.privacy.offline_mode ? 'ein' : 'aus' }),
-        h('dt', { text: 'Externe URLs' }), h('dd', { text: status.privacy.block_external_urls ? 'blockiert' : 'erlaubt' }))),
+      h('span', { class: 'label', text: t('dash.privacy') }),
+      kv([
+        [t('dash.offline'), status.privacy.offline_mode ? t('common.on') : t('common.off')],
+        [t('dash.externalUrls'), status.privacy.block_external_urls ? t('dash.blocked') : t('dash.allowed')],
+      ])),
     h('div', { class: 'ctx-block' },
       h('span', { class: 'label', text: 'Vault' }),
-      h('dl', { class: 'ctx-kv' },
-        h('dt', { text: 'Pfad' }), h('dd', { text: status.vault.path || '–' }),
-        h('dt', { text: 'Dateien' }), h('dd', { text: fmtNumber(state.files.length) }))),
+      kv([
+        [t('dash.path'), status.vault.path || '–'],
+        [t('dash.files'), fmtNumber(state.files.length)],
+      ])),
   );
 }
-
-const CAP_LABELS = {
-  completion: 'Text', vision: 'Bilder', tools: 'Werkzeuge',
-  thinking: 'Thinking', embedding: 'Embeddings', insert: 'Einfügen',
-};
